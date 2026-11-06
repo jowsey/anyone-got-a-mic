@@ -1,0 +1,15 @@
+BasedOnStyle: Microsoft
+FixNamespaceComments: false
+NamespaceIndentation: All
+ColumnLimit: 0
+
+ReferenceAlignment: Left
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+AllowShortLambdasOnASingleLine: None
+BreakAfterOpenBracketBracedList: true
+BreakBeforeCloseBracketBracedList: true
+
+AllowShortIfStatementsOnASingleLine: WithoutElse
+BreakTemplateDeclarations: Yes
