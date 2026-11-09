@@ -122,7 +122,7 @@ target_link_libraries(pulsar PRIVATE box3d::box3d)
 # CLI11
 FetchContent_Declare(
         CLI11
-        URL https://github.com/CLIUtils/CLI11/releases/download/v2.7.2/CLI11-2.7.2-Source.tar.gz
+        URL "https://github.com/CLIUtils/CLI11/releases/download/v2.7.2/CLI11-2.7.2-Source.tar.gz"
 )
 
 FetchContent_MakeAvailable(CLI11)
