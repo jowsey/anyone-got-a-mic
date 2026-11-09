@@ -17,6 +17,8 @@ int main(const int argc, char* argv[])
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
+    std::locale::global(std::locale(""));
+
     CLI::App app{"high-performance reinforcement learning environment"};
     app.option_defaults()->always_capture_default();
     app.get_formatter()->enable_option_type_names(false);
@@ -100,14 +102,14 @@ int main(const int argc, char* argv[])
             }
 
             results[benchThreads] = ticksRan;
-            spdlog::info("{} threads: {} ticks in {}s ({}/s)", benchThreads, ticksRan, interval, static_cast<float>(ticksRan) / interval);
+            spdlog::info("{} threads: {:L} ticks in {}s ({:L}/s)", benchThreads, ticksRan, interval, static_cast<float>(ticksRan) / interval);
         }
 
         const auto fastest = std::ranges::max_element(results, [](const auto& a, const auto& b) {
             return a.second < b.second;
         });
 
-        spdlog::info("Fastest: {} threads ({}/s)", fastest->first, static_cast<float>(fastest->second) / interval);
+        spdlog::info("Fastest: {} threads ({:L}/s)", fastest->first, static_cast<float>(fastest->second) / interval);
     });
 
     CLI11_PARSE(app, argc, argv);
