@@ -65,6 +65,16 @@ int main(const int argc, char* argv[])
         std::unordered_map<std::uint32_t, std::uint32_t> results;
         constexpr float fixedDeltaTime = 1.0f / 64.0f;
 
+        const std::uint32_t numBenchmarks = numThreads / threadStep;
+        std::string timeString;
+
+        float estTotalSeconds = static_cast<float>(numBenchmarks) * interval;
+        if (estTotalSeconds > 3600) timeString += std::to_string(static_cast<std::uint32_t>(estTotalSeconds / 3600.0f)) + "h";
+        if (estTotalSeconds > 60) timeString += std::to_string(static_cast<std::uint32_t>(estTotalSeconds / 60.0f) % 60) + "m";
+        timeString += std::to_string(static_cast<std::uint32_t>(estTotalSeconds) % 60) + "s";
+
+        spdlog::info("Benchmarking {}..{} threads ({} runs), est. {}", threadStep, numThreads, numBenchmarks, timeString);
+
         for (std::uint32_t benchThreads = threadStep; benchThreads <= numThreads; benchThreads += threadStep)
         {
             const auto batch = pulsar::BatchedEnvironment("benchmark", 2048, benchThreads);
