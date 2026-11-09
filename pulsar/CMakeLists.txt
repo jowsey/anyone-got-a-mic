@@ -117,6 +117,7 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(box3d)
+target_compile_definitions(box3d PUBLIC B3_MAX_WORLDS=4096)
 target_link_libraries(pulsar PRIVATE box3d::box3d)
 
 # CLI11
