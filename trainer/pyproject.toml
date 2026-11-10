@@ -1,0 +1,36 @@
+[project]
+name = "trainer"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "nanobind>=3.1.0",
+    "torch==2.15.0; sys_platform == 'darwin'",
+]
+
+[project.scripts]
+trainer = "trainer:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[project.optional-dependencies]
+rocm = ["torch==2.15.0+rocm10.0; sys_platform == 'linux'"]
+cuda = ["torch==2.15.0+cu132; sys_platform == 'linux'"]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch" }]
+
+[tool.uv]
+conflicts = [[{ extra = "cuda" }, { extra = "rocm" }]]
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm10.0"
