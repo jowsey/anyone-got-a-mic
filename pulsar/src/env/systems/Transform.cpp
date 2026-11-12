@@ -9,8 +9,8 @@ void pulsar::Systems::Transform::Register(const flecs::world& world)
         .kind(flecs::PostUpdate)
         .group_by(flecs::ParentDepth)
         .each([world](Components::Transform& tr, const flecs::Parent& parent) {
-            // note that transforms with no parent entity (should just be env roots) won't be process at all.
-            // below check is for transforms *with* parents but *without* parent _transforms_ (in-env top-level entities)
+            // all envs have a top-level transform-less (transparent) root entity. this means
+            // transforms will always have a parent entity (the env), but may not have a parent *transform*
             const auto parentTransform = world.entity(parent.value).try_get<Components::Transform>();
             const bool isWorldStale = tr.isLocalStale || (parentTransform && parentTransform->worldChangedThisFrame);
 
