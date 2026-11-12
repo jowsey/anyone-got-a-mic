@@ -17,6 +17,8 @@ add_executable(pulsar
         src/env/systems/Physics.cpp
         src/env/systems/Physics.h
         src/env/components/RigidBody.h
+        src/util/FormatConversion.cpp
+        src/util/FormatConversion.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")
