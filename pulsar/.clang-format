@@ -10,6 +10,7 @@ DerivePointerAlignment: false
 AllowShortLambdasOnASingleLine: None
 BreakAfterOpenBracketBracedList: true
 BreakBeforeCloseBracketBracedList: true
+BreakBeforeCloseBracketFunction: true
 
 AllowShortIfStatementsOnASingleLine: WithoutElse
 BreakTemplateDeclarations: Yes

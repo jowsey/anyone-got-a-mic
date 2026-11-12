@@ -11,7 +11,8 @@ namespace pulsar::Components
         glm::mat4 localMatrix;
         glm::mat4 worldMatrix;
 
-        bool isLocalDirty;
+        bool isLocalStale{true};
+        bool worldChangedThisFrame;
 
         glm::vec3 localPosition{0};
         glm::quat localRotation{glm::identity<glm::quat>()};
@@ -19,31 +20,39 @@ namespace pulsar::Components
 
         void recomputeLocalMatrix()
         {
-            assert(!isLocalDirty && "Attempted to recompute local matrix for a non-dirty Transform!");
+            assert(isLocalStale && "Attempted to recompute local matrix for a non-stale Transform!");
 
             localMatrix = glm::translate(glm::mat4(1.0f), localPosition) *
                           glm::mat4(localRotation) *
                           glm::scale(glm::mat4(1.0f), localScale);
 
-            isLocalDirty = false;
+            isLocalStale = false;
         }
 
         void setLocalPosition(const glm::vec3& newPosition)
         {
             localPosition = newPosition;
-            isLocalDirty = true;
+            isLocalStale = true;
         }
 
         void setLocalRotation(const glm::quat& newRotation)
         {
             localRotation = newRotation;
-            isLocalDirty = true;
+            isLocalStale = true;
         }
 
         void setLocalScale(const glm::vec3& newScale)
         {
             localScale = newScale;
-            isLocalDirty = true;
+            isLocalStale = true;
+        }
+
+        void setLocalPose(const glm::vec3& newPosition, const glm::quat& newRotation)
+        {
+            localPosition = newPosition;
+            localRotation = newRotation;
+
+            isLocalStale = true;
         }
     };
 }

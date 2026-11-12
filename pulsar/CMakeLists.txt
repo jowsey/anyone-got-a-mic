@@ -14,6 +14,14 @@ add_executable(pulsar
         src/env/components/EnvironmentId.h
         src/env/systems/Transform.cpp
         src/env/systems/Transform.h
+        src/env/systems/Physics.cpp
+        src/env/systems/Physics.h
+        src/env/components/RigidBody.h
+        src/env/components/Environment.h
+        src/util/FormatConversion.cpp
+        src/util/FormatConversion.h
+        src/util/Fmt.cpp
+        src/util/Fmt.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")
@@ -113,7 +121,7 @@ target_link_libraries(pulsar PRIVATE flecs::flecs_static)
 # box3d
 FetchContent_Declare(
         box3d
-        URL "https://github.com/erincatto/box3d/archive/336263320469e5e9febfe18697ab562488f7e97a.tar.gz"
+        URL "https://github.com/erincatto/box3d/archive/a8ac09f364de4cb099b10b0e331e378c9f0d3638.tar.gz"
 )
 
 FetchContent_MakeAvailable(box3d)
@@ -146,3 +154,14 @@ target_link_libraries(pulsar PRIVATE CLI11::CLI11)
 #
 #FetchContent_MakeAvailable(crow)
 #target_link_libraries(pulsar PRIVATE Crow::Crow)
+
+## nanobind
+#set(Python_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/../trainer/.venv/bin/python")
+#find_package(Python 3.10 COMPONENTS Interpreter Development.Module REQUIRED)
+#
+#execute_process(
+#        COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+#        OUTPUT_VARIABLE nanobind_ROOT
+#        OUTPUT_STRIP_TRAILING_WHITESPACE
+#)
+#find_package(nanobind CONFIG REQUIRED)

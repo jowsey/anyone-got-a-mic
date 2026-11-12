@@ -1,24 +1,43 @@
 #pragma once
+#include <thread>
 #include <vector>
 
 #include "box3d/id.h"
 #include "flecs.h"
 #include "flecs/addons/cpp/world.hpp"
 
+#include <barrier>
+
 namespace pulsar
 {
+    struct AgentObservation
+    {
+        float placeholder;
+    };
+
+    struct ThreadBatch
+    {
+        flecs::world sharedEcs;
+        std::vector<flecs::entity> envRoots;
+        std::vector<b3WorldId> b3WorldIds;
+        std::vector<std::vector<AgentObservation>> agentObservations;
+
+        std::jthread worker;
+    };
+
     class BatchedEnvironment
     {
         std::string name;
+        std::vector<ThreadBatch> batches;
 
-        flecs::world ecsWorld;
-
-        std::vector<flecs::entity> envRoots;
-        std::vector<b3WorldId> box3dWorlds;
+        std::barrier<> jobsAvailableBarrier;
+        std::barrier<> workDoneBarrier;
 
       public:
-        explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize = 1, std::uint8_t numThreads = 1);
+        explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize, std::uint32_t numThreads, float fixedDeltaTime);
 
-        [[nodiscard]] bool stepAll(float dt) const;
+        ~BatchedEnvironment();
+
+        [[nodiscard]] bool stepAll();
     };
 }

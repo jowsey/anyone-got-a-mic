@@ -10,6 +10,9 @@
 
 #include "CLI/CLI.hpp"
 #include "spdlog/spdlog.h"
+#include "util/Fmt.h"
+
+#include <ranges>
 
 int main(const int argc, char* argv[])
 {
@@ -26,12 +29,12 @@ int main(const int argc, char* argv[])
 
     argv = app.ensure_utf8(argv);
 
-    std::uint32_t numThreads = std::thread::hardware_concurrency();
+    std::uint32_t hardwareThreads = std::thread::hardware_concurrency();
 
-    const auto batchSizeOpt = app.add_option("-b,--batch", "number of parallel environments")->default_val(512);
+    const auto batchSizeOpt = app.add_option("-b,--batch-size", "number of environments per worker")->default_val(128);
     const auto threadCountOpt = app.add_option("-t,--threads", "number of worker threads (or 'auto')")
-                                    ->transform([numThreads](const std::string& str) {
-                                        return str == "auto" ? std::to_string(numThreads / 2) : str;
+                                    ->transform([hardwareThreads](const std::string& str) {
+                                        return str == "auto" ? std::to_string(hardwareThreads / 2) : str;
                                     })
                                     ->check(CLI::Range(1, 8192))
                                     ->default_val("auto");
@@ -45,13 +48,13 @@ int main(const int argc, char* argv[])
         if (!app.get_subcommands().empty()) return;
 
         const auto batchSize = batchSizeOpt->as<std::size_t>();
-        const auto numThreads = threadCountOpt->as<std::uint8_t>();
+        const auto threadCount = threadCountOpt->as<std::uint32_t>();
         const auto tickRateHz = tickRateOpt->as<float>();
 
-        const auto batch = pulsar::BatchedEnvironment("default", batchSize, numThreads);
         const float fixedDeltaTime = 1.0f / tickRateHz;
+        auto batch = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
 
-        while (batch.stepAll(fixedDeltaTime))
+        while (batch.stepAll())
         {
         }
     });
@@ -67,32 +70,33 @@ int main(const int argc, char* argv[])
         std::unordered_map<std::uint32_t, std::uint32_t> results;
         constexpr float fixedDeltaTime = 1.0f / 64.0f;
 
-        const std::uint32_t numBenchmarks = numThreads / threadStep;
+        const std::uint32_t numBenchmarks = hardwareThreads / threadStep;
         std::string timeString;
 
-        float estTotalSeconds = static_cast<float>(numBenchmarks) * interval;
+        const float estTotalSeconds = static_cast<float>(numBenchmarks) * interval;
         if (estTotalSeconds > 3600) timeString += std::to_string(static_cast<std::uint32_t>(estTotalSeconds / 3600.0f)) + "h";
         if (estTotalSeconds > 60) timeString += std::to_string(static_cast<std::uint32_t>(estTotalSeconds / 60.0f) % 60) + "m";
         timeString += std::to_string(static_cast<std::uint32_t>(estTotalSeconds) % 60) + "s";
 
-        spdlog::info("Benchmarking {}..{} threads ({} runs), est. {}", threadStep, numThreads, numBenchmarks, timeString);
+        spdlog::info("Benchmarking {}..{} threads ({} runs), est. {}", threadStep, hardwareThreads, numBenchmarks, timeString);
 
-        for (std::uint32_t benchThreads = threadStep; benchThreads <= numThreads; benchThreads += threadStep)
+        for (std::uint32_t benchThreads = threadStep; benchThreads <= hardwareThreads; benchThreads += threadStep)
         {
-            const auto batch = pulsar::BatchedEnvironment("benchmark", 2048, benchThreads);
+            constexpr auto batchSize = 128;
+            auto batch = pulsar::BatchedEnvironment("benchmark", batchSize, benchThreads, fixedDeltaTime);
 
-            std::uint32_t ticksRan = 0;
+            std::uint64_t totalEnvTicks = 0;
             const auto startTime = std::chrono::steady_clock::now();
 
             while (true)
             {
-                if (!batch.stepAll(fixedDeltaTime))
+                if (!batch.stepAll())
                 {
                     spdlog::error("Batch failed to step (?)");
                     break;
                 }
 
-                ++ticksRan;
+                totalEnvTicks += batchSize * benchThreads;
 
                 const auto elapsedTime = std::chrono::steady_clock::now() - startTime;
                 if (std::chrono::duration<float>(elapsedTime).count() >= interval)
@@ -101,15 +105,18 @@ int main(const int argc, char* argv[])
                 }
             }
 
-            results[benchThreads] = ticksRan;
-            spdlog::info("{} threads: {:L} ticks in {}s ({:L}/s)", benchThreads, ticksRan, interval, static_cast<float>(ticksRan) / interval);
+            results[benchThreads] = totalEnvTicks;
+            auto prettyTotal = pulsar::Utils::Fmt::prettyPrint(static_cast<double>(totalEnvTicks));
+            auto prettyAvg = pulsar::Utils::Fmt::prettyPrint(static_cast<double>(totalEnvTicks) / interval);
+            spdlog::info("{} threads: {} ticks in {}s ({}/s)", benchThreads, prettyTotal, interval, prettyAvg);
         }
 
         const auto fastest = std::ranges::max_element(results, [](const auto& a, const auto& b) {
             return a.second < b.second;
         });
 
-        spdlog::info("Fastest: {} threads ({:L}/s)", fastest->first, static_cast<float>(fastest->second) / interval);
+        auto prettyBestAvg = pulsar::Utils::Fmt::prettyPrint(static_cast<double>(fastest->second) / interval);
+        spdlog::info("Fastest: {} threads ({}/s)", fastest->first, prettyBestAvg);
     });
 
     CLI11_PARSE(app, argc, argv);
