@@ -1,36 +1,25 @@
 #include "Transform.h"
-#include "../components/EnvironmentId.h"
 #include "../components/Transform.h"
 
 #include "glm/gtc/quaternion.hpp"
 
-void pulsar::Systems::Transform::processChildTransforms(const flecs::entity& parent, const glm::mat4& parentWorld, bool parentDirty = false)
-{
-    parent.children([parentWorld, parentDirty](const flecs::entity child) {
-        Components::Transform& tr = child.get_mut<Components::Transform>();
-
-        const bool isWorldDirty = tr.isLocalDirty || parentDirty;
-
-        if (tr.isLocalDirty)
-        {
-            tr.recomputeLocalMatrix();
-        }
-
-        if (isWorldDirty)
-        {
-            tr.worldMatrix = parentWorld * tr.localMatrix;
-        }
-
-        processChildTransforms(child, tr.worldMatrix, isWorldDirty);
-    });
-}
-
 void pulsar::Systems::Transform::Register(const flecs::world& world)
 {
-    world.system<Components::EnvironmentId>("TransformSystem")
-        .without<flecs::Parent>()
+    world.system<Components::Transform, const flecs::Parent>("TransformSystem")
         .kind(flecs::PostUpdate)
-        .each([](const flecs::entity rootEntity, const Components::EnvironmentId& /*envId*/) {
-            processChildTransforms(rootEntity, glm::mat4(1.0f));
+        .group_by(flecs::ParentDepth)
+        .each([world](Components::Transform& tr, const flecs::Parent& parent) {
+            // note that transforms with no parent entity (should just be env roots) won't be process at all.
+            // below check is for transforms *with* parents but *without* parent _transforms_ (in-env top-level entities)
+            const auto parentTransform = world.entity(parent.value).try_get<Components::Transform>();
+            const bool isWorldStale = tr.isLocalStale || (parentTransform && parentTransform->worldChangedThisFrame);
+
+            if (tr.isLocalStale) tr.recomputeLocalMatrix();
+            if (isWorldStale)
+            {
+                tr.worldMatrix = (parentTransform ? parentTransform->worldMatrix : glm::mat4(1.0f)) * tr.localMatrix;
+            }
+
+            tr.worldChangedThisFrame = isWorldStale;
         });
 }
