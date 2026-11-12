@@ -14,6 +14,9 @@ add_executable(pulsar
         src/env/components/EnvironmentId.h
         src/env/systems/Transform.cpp
         src/env/systems/Transform.h
+        src/env/systems/Physics.cpp
+        src/env/systems/Physics.h
+        src/env/components/RigidBody.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")
@@ -129,6 +132,15 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(CLI11)
 target_link_libraries(pulsar PRIVATE CLI11::CLI11)
 
+# BS::thread-pool
+FetchContent_Declare(
+        thread-pool
+        URL "https://github.com/bshoshany/thread-pool/archive/refs/tags/v5.1.0.tar.gz"
+)
+
+FetchContent_MakeAvailable(thread-pool)
+target_link_libraries(pulsar PRIVATE thread-pool)
+
 # crow # saving for later if we want to send map data for rendering
 ## asio
 #FetchContent_Declare(
@@ -146,3 +158,14 @@ target_link_libraries(pulsar PRIVATE CLI11::CLI11)
 #
 #FetchContent_MakeAvailable(crow)
 #target_link_libraries(pulsar PRIVATE Crow::Crow)
+
+## nanobind
+#set(Python_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/../trainer/.venv/bin/python")
+#find_package(Python 3.10 COMPONENTS Interpreter Development.Module REQUIRED)
+#
+#execute_process(
+#        COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+#        OUTPUT_VARIABLE nanobind_ROOT
+#        OUTPUT_STRIP_TRAILING_WHITESPACE
+#)
+#find_package(nanobind CONFIG REQUIRED)
