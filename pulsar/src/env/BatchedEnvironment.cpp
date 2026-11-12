@@ -2,9 +2,11 @@
 
 #include "box3d/box3d.h"
 #include "box3d/types.h"
+#include "components/Environment.h"
 #include "components/EnvironmentId.h"
 #include "flecs.h"
 #include "spdlog/spdlog.h"
+#include "systems/Physics.h"
 #include "systems/Transform.h"
 
 #include <algorithm>
@@ -13,7 +15,8 @@
 /// @param batchName Descriptive name for this batch
 /// @param batchSize Number of environments to simulate per thread
 /// @param numThreads Number of parallel threads to use
-pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, const std::size_t batchSize, const std::uint8_t numThreads)
+/// @param fixedDeltaTime Fixed tick time-step
+pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, const std::size_t batchSize, const std::uint8_t numThreads, const float fixedDeltaTime)
     : name(batchName)
 {
     spdlog::info("Launching batch '{}' with {} environments across {} thread(s)", batchName, batchSize * numThreads, numThreads);
@@ -27,21 +30,27 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
 
     for (std::size_t i = 0; i < numThreads; ++i)
     {
-        auto batch = Batch{};
+        auto batch = ThreadBatch();
+        batch.envEntities.reserve(batchSize);
+        batch.b3WorldIds.reserve(batchSize);
 
         for (std::size_t j = 0; j < batchSize; ++j)
         {
-            // Create env root
-            const auto root = batch.ecsWorld.entity().set<Components::EnvironmentId>({i});
-            batch.envRoots.push_back(root);
-
             // Create physics world
             const auto b3WorldId = b3CreateWorld(&worldDef);
             batch.b3WorldIds.push_back(b3WorldId);
+
+            // Create env root
+            const auto root = batch.sharedEcs.entity()
+                                  .set<Components::Environment>({b3WorldId})
+                                  .set<Components::EnvironmentId>({i});
+            batch.envEntities.push_back(root);
         }
 
         // Transform system
-        Systems::Transform::Register(batch.ecsWorld);
+        Systems::Transform::Register(batch.sharedEcs);
+        // Physics system
+        Systems::Physics::Register(batch.sharedEcs, batch.b3WorldIds, fixedDeltaTime);
 
         batches.push_back(batch);
     }
@@ -59,8 +68,7 @@ pulsar::BatchedEnvironment::~BatchedEnvironment()
 
 bool pulsar::BatchedEnvironment::stepAll(const float dt) const
 {
-    // todo dispatch to threads
     return std::ranges::all_of(batches, [dt](const auto& batch) {
-        return batch.ecsWorld.progress(dt);
+        return batch.sharedEcs.progress(dt);
     });
 }

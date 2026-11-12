@@ -30,8 +30,7 @@ void pulsar::Systems::Transform::Register(const flecs::world& world)
     world.system<Components::EnvironmentId>("TransformSystem")
         .without<flecs::Parent>()
         .kind(flecs::PostUpdate)
-        .multi_threaded()
-        .each([](const flecs::entity envRoot, const Components::EnvironmentId& /*envId*/) {
-            processChildTransforms(envRoot, glm::mat4(1.0f));
+        .each([](const flecs::entity rootEntity, const Components::EnvironmentId& /*envId*/) {
+            processChildTransforms(rootEntity, glm::mat4(1.0f));
         });
 }

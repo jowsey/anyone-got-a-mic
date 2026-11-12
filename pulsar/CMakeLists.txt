@@ -17,6 +17,7 @@ add_executable(pulsar
         src/env/systems/Physics.cpp
         src/env/systems/Physics.h
         src/env/components/RigidBody.h
+        src/env/components/Environment.h
         src/util/FormatConversion.cpp
         src/util/FormatConversion.h
 )
@@ -133,15 +134,6 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(CLI11)
 target_link_libraries(pulsar PRIVATE CLI11::CLI11)
-
-# BS::thread-pool
-FetchContent_Declare(
-        thread-pool
-        URL "https://github.com/bshoshany/thread-pool/archive/refs/tags/v5.1.0.tar.gz"
-)
-
-FetchContent_MakeAvailable(thread-pool)
-target_link_libraries(pulsar PRIVATE thread-pool)
 
 # crow # saving for later if we want to send map data for rendering
 ## asio

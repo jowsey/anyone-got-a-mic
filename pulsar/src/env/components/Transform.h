@@ -45,5 +45,12 @@ namespace pulsar::Components
             localScale = newScale;
             isLocalDirty = true;
         }
+
+        void setLocalPose(const glm::vec3& newPosition, const glm::quat& newRotation)
+        {
+            localPosition = newPosition;
+            localRotation = newRotation;
+            isLocalDirty = true;
+        }
     };
 }
