@@ -17,7 +17,7 @@
 /// @param batchSize Number of environments to simulate per thread
 /// @param numThreads Number of parallel threads to use
 /// @param fixedDeltaTime Fixed tick time-step
-pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, const std::size_t batchSize, const std::uint8_t numThreads, const float fixedDeltaTime)
+pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, const std::size_t batchSize, const std::uint32_t numThreads, const float fixedDeltaTime)
     : name(batchName), jobsAvailableBarrier(numThreads + 1), workDoneBarrier(numThreads + 1)
 {
     spdlog::info("Launching batch '{}' with {} environments across {} thread(s)", batchName, batchSize * numThreads, numThreads);
