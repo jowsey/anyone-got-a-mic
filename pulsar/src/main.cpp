@@ -4,14 +4,20 @@
 #include <windows.h>
 #endif
 
-#include <print>
-
-#include "env/BatchedEnvironment.h"
-
 #include "CLI/CLI.hpp"
+#include "SDL3/SDL_timer.h"
+#include "env/BatchedEnvironment.h"
+#include "env/components/EnvironmentId.h"
+#include "env/components/MeshRenderer.h"
+#include "env/components/Transform.h"
+#include "renderer/Primitives.h"
+#include "renderer/RenderWindow.h"
 #include "spdlog/spdlog.h"
 #include "util/Fmt.h"
 
+#include <latch>
+#include <print>
+#include <random>
 #include <ranges>
 
 int main(const int argc, char* argv[])
@@ -29,19 +35,22 @@ int main(const int argc, char* argv[])
 
     argv = app.ensure_utf8(argv);
 
+    // `pulsar`
     std::uint32_t hardwareThreads = std::thread::hardware_concurrency();
 
     const auto batchSizeOpt = app.add_option("-b,--batch-size", "number of environments per worker")->default_val(128);
     const auto threadCountOpt = app.add_option("-t,--threads", "number of worker threads (or 'auto')")
-                                    ->transform([hardwareThreads](const std::string& str) {
-                                        return str == "auto" ? std::to_string(hardwareThreads / 2) : str;
-                                    })
-                                    ->check(CLI::Range(1, 8192))
-                                    ->default_val("auto");
+                                   ->transform([hardwareThreads](const std::string& str) {
+                                       return str == "auto" ? std::to_string(hardwareThreads / 2) : str;
+                                   })
+                                   ->check(CLI::Range(1, 8192))
+                                   ->default_val("auto");
     const auto tickRateOpt = app.add_option("--tick-rate", "simulation tick rate (Hz)")->default_val(64);
+    const auto headlessFlag = app.add_flag("--headless", "run without rendering");
 
     app.parse_complete_callback([&] {
         std::println("\n  💫 pulsar v{}\n", PULSAR_VERSION);
+        std::cout << std::flush;
     });
 
     app.callback([&] {
@@ -50,15 +59,79 @@ int main(const int argc, char* argv[])
         const auto batchSize = batchSizeOpt->as<std::size_t>();
         const auto threadCount = threadCountOpt->as<std::uint32_t>();
         const auto tickRateHz = tickRateOpt->as<float>();
+        const auto headless = headlessFlag->count() > 0;
 
         const float fixedDeltaTime = 1.0f / tickRateHz;
         auto batch = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
 
-        while (batch.stepAll())
+        std::unique_ptr<pulsar::Renderer::RenderWindow> window;
+
+        std::latch finished{1};
+
+        if (!headless)
         {
+            window = std::make_unique<pulsar::Renderer::RenderWindow>(batch.getBatch(0), 0);
+            const auto cubeIndex = window->RegisterMesh(pulsar::Renderer::Primitives::CubeMesh);
+
+            // todo decouple from renderer (i.e. global mesh cache + for physics)
+            auto& firstBatch = batch.getBatch(0);
+
+            std::mt19937 rng(std::random_device{}());
+            std::uniform_real_distribution<float> dist(-5.0f, 5.0f);
+
+            for (std::size_t i = 0; i < 5; i++)
+            {
+                auto randPosition = glm::vec3{dist(rng), 0, dist(rng)};
+
+                (void)firstBatch.sharedEcs.entity(flecs::Parent{firstBatch.envRoots[0]}, std::format("Cube {}", i).c_str())
+                                .set<pulsar::Components::EnvironmentId>({.envId = 0})
+                                .set<pulsar::Components::Transform>({.localPosition = randPosition})
+                                .set<pulsar::Components::MeshRenderer>(cubeIndex);
+            }
+        }
+
+        auto orchestratorThread = std::jthread([&](const std::stop_token& st) {
+            while (!st.stop_requested())
+            {
+                batch.stepAll();
+            }
+
+            // todo give batch a way to say we're done?
+            finished.count_down();
+        });
+
+        auto lastTime = SDL_GetTicksNS();
+        while (window && !window->getIsQuitting())
+        {
+            const auto now = SDL_GetTicksNS();
+            const auto deltaTime = static_cast<float>(now - lastTime) / 1'000'000'000.0f;
+
+            window->pollEvents();
+            window->render(deltaTime);
+
+            lastTime = now;
+        }
+
+        if (headless)
+        {
+            // wait for orchestrator to finish
+            finished.wait();
+        }
+        else
+        {
+            // window closed
+            orchestratorThread.request_stop();
+        }
+
+        if (orchestratorThread.joinable()) orchestratorThread.join();
+
+        if (window)
+        {
+            window->dispose();
         }
     });
 
+    // `pulsar benchmark`
     const auto benchmarkCmd = app.add_subcommand("benchmark", "benchmark batch & thread counts");
     const auto benchmarkIntervalOpt = benchmarkCmd->add_option("-i,--interval", "benchmark interval (seconds)")->default_val(5);
     const auto benchmarkThreadStepOpt = benchmarkCmd->add_option("-s,--step", "thread step size (threads)")->default_val(2);
@@ -90,11 +163,7 @@ int main(const int argc, char* argv[])
 
             while (true)
             {
-                if (!batch.stepAll())
-                {
-                    spdlog::error("Batch failed to step (?)");
-                    break;
-                }
+                batch.stepAll();
 
                 totalEnvTicks += batchSize * benchThreads;
 

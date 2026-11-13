@@ -21,7 +21,7 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
     : name(batchName), jobsAvailableBarrier(numThreads + 1), workDoneBarrier(numThreads + 1)
 {
     spdlog::info("Launching batch '{}' with {} environments across {} thread(s)", batchName, batchSize * numThreads, numThreads);
-    assert(batchSize <= B3_MAX_WORLDS && "Batch size exceeds max Box3D worlds. Increase B3_MAX_WORLDS in CMakeLists.txt.");
+    assert(batchSize * numThreads <= B3_MAX_WORLDS && "Batch size exceeds max Box3D worlds. Increase B3_MAX_WORLDS in CMakeLists.txt.");
 
     batches.reserve(numThreads);
 
@@ -57,7 +57,7 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
         Systems::Physics::Register(batch.sharedEcs, batch.b3WorldIds, fixedDeltaTime);
 
         // Start worker
-        batch.worker = std::jthread([&, threadI](const std::stop_token& stopToken) {
+        batch.worker = std::jthread([&, threadI, fixedDeltaTime](const std::stop_token& stopToken) {
             spdlog::debug("[Worker {}] Worker started", threadI);
 
             while (true)
@@ -104,9 +104,13 @@ pulsar::BatchedEnvironment::~BatchedEnvironment()
     }
 }
 
-bool pulsar::BatchedEnvironment::stepAll()
+void pulsar::BatchedEnvironment::stepAll()
 {
     jobsAvailableBarrier.arrive_and_wait();
     workDoneBarrier.arrive_and_wait();
-    return true;
+}
+
+const pulsar::ThreadBatch& pulsar::BatchedEnvironment::getBatch(const std::size_t index) const
+{
+    return batches.at(index);
 }

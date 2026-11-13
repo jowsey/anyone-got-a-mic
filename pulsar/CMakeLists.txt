@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.4)
+cmake_minimum_required(VERSION 3.28...4.4)
 project(pulsar VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -6,18 +6,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(DIST_DIR "${CMAKE_BINARY_DIR}/dist")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${DIST_DIR}/bin")
+
 add_executable(pulsar
         src/main.cpp
         src/env/BatchedEnvironment.cpp
         src/env/BatchedEnvironment.h
-        src/env/components/Transform.h
+        src/env/components/Environment.h
         src/env/components/EnvironmentId.h
-        src/env/systems/Transform.cpp
-        src/env/systems/Transform.h
+        src/env/components/MeshRenderer.h
+        src/env/components/RigidBody.h
+        src/env/components/Transform.h
         src/env/systems/Physics.cpp
         src/env/systems/Physics.h
-        src/env/components/RigidBody.h
-        src/env/components/Environment.h
+        src/env/systems/Transform.cpp
+        src/env/systems/Transform.h
+        src/renderer/Primitives.h
+        src/renderer/RenderWindow.cpp
+        src/renderer/RenderWindow.h
         src/util/FormatConversion.cpp
         src/util/FormatConversion.h
         src/util/Fmt.cpp
@@ -83,7 +90,7 @@ set_target_properties(pulsar PROPERTIES COMPILE_WARNING_AS_ERROR ON)
 if (MSVC)
     target_compile_options(pulsar PRIVATE /W4)
 else ()
-    target_compile_options(pulsar PRIVATE -Wall -Wextra -pedantic)
+    target_compile_options(pulsar PRIVATE -Wall -Wextra -pedantic -Wno-missing-field-initializers)
 endif ()
 
 include(FetchContent)
@@ -92,6 +99,7 @@ include(FetchContent)
 FetchContent_Declare(
         spdlog
         URL "https://github.com/gabime/spdlog/archive/refs/tags/v1.17.0.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(spdlog)
@@ -101,15 +109,21 @@ target_link_libraries(pulsar PRIVATE spdlog::spdlog)
 FetchContent_Declare(
         glm
         URL "https://github.com/g-truc/glm/archive/refs/tags/1.0.3.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(glm)
+target_compile_definitions(glm PUBLIC
+        GLM_FORCE_DEPTH_ZERO_TO_ONE
+        GLM_FORCE_LEFT_HANDED
+)
 target_link_libraries(pulsar PRIVATE glm)
 
 # flecs
 FetchContent_Declare(
         flecs
         URL "https://github.com/SanderMertens/flecs/archive/refs/tags/v4.2.0.tar.gz"
+        SYSTEM
 )
 
 set(FLECS_SHARED OFF CACHE BOOL "" FORCE)
@@ -121,7 +135,8 @@ target_link_libraries(pulsar PRIVATE flecs::flecs_static)
 # box3d
 FetchContent_Declare(
         box3d
-        URL "https://github.com/erincatto/box3d/archive/a8ac09f364de4cb099b10b0e331e378c9f0d3638.tar.gz"
+        URL "https://github.com/erincatto/box3d/archive/31d0e31331a106e175d9b161bb412957ab1c63b1.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(box3d)
@@ -132,28 +147,90 @@ target_link_libraries(pulsar PRIVATE box3d::box3d)
 FetchContent_Declare(
         CLI11
         URL "https://github.com/CLIUtils/CLI11/releases/download/v2.7.2/CLI11-2.7.2-Source.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(CLI11)
 target_link_libraries(pulsar PRIVATE CLI11::CLI11)
 
-# crow # saving for later if we want to send map data for rendering
-## asio
-#FetchContent_Declare(
-#        asio
-#        URL "https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-38-2.tar.gz"
-#)
-#
-#FetchContent_MakeAvailable(asio)
-#set(ASIO_INCLUDE_DIR "${asio_SOURCE/DIR}/asio/include")
-#
-#FetchContent_Declare(
-#        crow
-#        URL "https://github.com/CrowCpp/Crow/archive/refs/tags/v1.3.5.tar.gz"
-#)
-#
-#FetchContent_MakeAvailable(crow)
-#target_link_libraries(pulsar PRIVATE Crow::Crow)
+# SDL3
+FetchContent_Declare(
+        SDL3
+        URL "https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.4.20.tar.gz"
+        SYSTEM
+)
+
+FetchContent_MakeAvailable(SDL3)
+target_link_libraries(pulsar PRIVATE SDL3::SDL3)
+
+# Dear ImGui
+FetchContent_Declare(
+        imgui
+        URL "https://github.com/ocornut/imgui/archive/refs/tags/v1.93.0-docking.tar.gz"
+        SYSTEM
+)
+
+FetchContent_MakeAvailable(imgui)
+
+add_library(imgui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlgpu3.cpp
+)
+
+target_include_directories(imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+target_link_libraries(imgui PUBLIC SDL3::SDL3)
+target_link_libraries(pulsar PRIVATE imgui)
+
+# Shader compilation
+# todo allow headless build
+find_program(SHADERCROSS_EXE shadercross REQUIRED)
+
+if (APPLE)
+    set(SHADER_EXT ".msl")
+elseif (WIN32 OR UNIX)
+    set(SHADER_EXT ".spv")
+endif ()
+
+set(SHADER_OUT_DIR "${DIST_DIR}/resources/shaders")
+file(MAKE_DIRECTORY ${SHADER_OUT_DIR})
+
+function(compile_hlsl SOURCE_FILE STAGE ENTRY_POINT OUTPUT_NAME)
+    set(INPUT_PATH "${CMAKE_SOURCE_DIR}/${SOURCE_FILE}")
+    set(OUTPUT_PATH "${SHADER_OUT_DIR}/${OUTPUT_NAME}${SHADER_EXT}")
+
+    add_custom_command(
+            OUTPUT "${OUTPUT_PATH}"
+            COMMAND "${SHADERCROSS_EXE}" "${INPUT_PATH}"
+            -t "${STAGE}"
+            -e "${ENTRY_POINT}"
+            -o "${OUTPUT_PATH}"
+            DEPENDS "${INPUT_PATH}"
+            COMMENT "Compiling ${SOURCE_FILE} (${STAGE}, ${ENTRY_POINT}) to ${OUTPUT_NAME}${SHADER_EXT}"
+            VERBATIM
+    )
+
+    list(APPEND COMPILED_SHADERS "${OUTPUT_PATH}")
+    set(COMPILED_SHADERS ${COMPILED_SHADERS} PARENT_SCOPE)
+endfunction()
+
+compile_hlsl("src/renderer/shaders/lit.hlsl" "vertex" "VSMain" "lit_vert")
+compile_hlsl("src/renderer/shaders/lit.hlsl" "fragment" "PSMain" "lit_frag")
+
+add_custom_target(compile_shaders ALL DEPENDS ${COMPILED_SHADERS})
+add_dependencies(pulsar compile_shaders)
+
+# Copy resources
+add_custom_target(copy_resources ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${CMAKE_SOURCE_DIR}/resources" "${DIST_DIR}/resources"
+        COMMENT "Syncing resources to build directory"
+)
+
+add_dependencies(pulsar copy_resources)
 
 ## nanobind
 #set(Python_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/../trainer/.venv/bin/python")
