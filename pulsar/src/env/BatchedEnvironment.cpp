@@ -28,14 +28,17 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
     worldDef.gravity = b3Vec3{.x = 0.0f, .y = -9.81f, .z = 0.0f};
     worldDef.workerCount = 1;
 
-    for (std::size_t i = 0; i < numThreads; ++i)
+    for (std::size_t threadI = 0; threadI < numThreads; ++threadI)
     {
-        auto batch = ThreadBatch();
-        batch.envEntities.reserve(batchSize);
+        auto& batch = batches.emplace_back();
+        batch.envRoots.reserve(batchSize);
         batch.b3WorldIds.reserve(batchSize);
+        batch.agentObservations.reserve(batchSize);
 
-        for (std::size_t j = 0; j < batchSize; ++j)
+        for (std::size_t envI = 0; envI < batchSize; ++envI)
         {
+            batch.agentObservations[envI].reserve(128); // todo formalize number of agents per env
+
             // Create physics world
             const auto b3WorldId = b3CreateWorld(&worldDef);
             batch.b3WorldIds.push_back(b3WorldId);
@@ -43,18 +46,17 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
             // Create env root
             const auto root = batch.sharedEcs.entity()
                                   .set<Components::Environment>({b3WorldId})
-                                  .set<Components::EnvironmentId>({i});
-            batch.envEntities.push_back(root);
+                                  .set<Components::EnvironmentId>({threadI * batchSize + envI}); // todo does this need to be unique across batches?
+            batch.envRoots.push_back(root);
         }
 
         // Transform system
         Systems::Transform::Register(batch.sharedEcs);
         // Physics system
         Systems::Physics::Register(batch.sharedEcs, batch.b3WorldIds, fixedDeltaTime);
-
-        batches.push_back(batch);
     }
 }
+
 pulsar::BatchedEnvironment::~BatchedEnvironment()
 {
     for (const auto& batch : batches)

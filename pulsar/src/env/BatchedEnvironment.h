@@ -1,4 +1,5 @@
 #pragma once
+#include <thread>
 #include <vector>
 
 #include "box3d/id.h"
@@ -7,11 +8,19 @@
 
 namespace pulsar
 {
+    struct AgentObservation
+    {
+        float placeholder;
+    };
+
     struct ThreadBatch
     {
         flecs::world sharedEcs;
-        std::vector<flecs::entity> envEntities;
+        std::vector<flecs::entity> envRoots;
         std::vector<b3WorldId> b3WorldIds;
+        std::vector<std::vector<AgentObservation>> agentObservations;
+
+        std::jthread worker;
     };
 
     class BatchedEnvironment
