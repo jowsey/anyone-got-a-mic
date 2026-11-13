@@ -34,7 +34,7 @@ namespace pulsar
         std::barrier<> workDoneBarrier;
 
       public:
-        explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize, std::uint8_t numThreads, float fixedDeltaTime);
+        explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize, std::uint32_t numThreads, float fixedDeltaTime);
 
         ~BatchedEnvironment();
 
