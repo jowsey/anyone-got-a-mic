@@ -9,7 +9,7 @@ void pulsar::Systems::Physics::Register(const flecs::world& world, const std::ve
 {
     world.system<Components::Transform, Components::RigidBody>("PhysicsSystem")
         .kind(flecs::PostUpdate)
-        .run([&](flecs::iter& it) {
+        .run([&, deltaTime](flecs::iter& it) {
             while (it.next())
             {
                 const auto transform = it.field<Components::Transform>(0);
