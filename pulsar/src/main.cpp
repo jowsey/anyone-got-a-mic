@@ -48,7 +48,7 @@ int main(const int argc, char* argv[])
         if (!app.get_subcommands().empty()) return;
 
         const auto batchSize = batchSizeOpt->as<std::size_t>();
-        const auto threadCount = threadCountOpt->as<std::uint8_t>();
+        const auto threadCount = threadCountOpt->as<std::uint32_t>();
         const auto tickRateHz = tickRateOpt->as<float>();
 
         const float fixedDeltaTime = 1.0f / tickRateHz;
