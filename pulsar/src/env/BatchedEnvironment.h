@@ -6,6 +6,8 @@
 #include "flecs.h"
 #include "flecs/addons/cpp/world.hpp"
 
+#include <barrier>
+
 namespace pulsar
 {
     struct AgentObservation
@@ -28,11 +30,14 @@ namespace pulsar
         std::string name;
         std::vector<ThreadBatch> batches;
 
+        std::barrier<> jobsAvailableBarrier;
+        std::barrier<> workDoneBarrier;
+
       public:
         explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize, std::uint8_t numThreads, float fixedDeltaTime);
 
         ~BatchedEnvironment();
 
-        [[nodiscard]] bool stepAll(float dt) const;
+        [[nodiscard]] bool stepAll();
     };
 }

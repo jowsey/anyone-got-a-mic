@@ -9,7 +9,8 @@
 #include "systems/Physics.h"
 #include "systems/Transform.h"
 
-#include <algorithm>
+#include <barrier>
+#include <random>
 
 /// Create a new batched environment
 /// @param batchName Descriptive name for this batch
@@ -17,7 +18,7 @@
 /// @param numThreads Number of parallel threads to use
 /// @param fixedDeltaTime Fixed tick time-step
 pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, const std::size_t batchSize, const std::uint8_t numThreads, const float fixedDeltaTime)
-    : name(batchName)
+    : name(batchName), jobsAvailableBarrier(numThreads + 1), workDoneBarrier(numThreads + 1)
 {
     spdlog::info("Launching batch '{}' with {} environments across {} thread(s)", batchName, batchSize * numThreads, numThreads);
     assert(batchSize <= B3_MAX_WORLDS && "Batch size exceeds max Box3D worlds. Increase B3_MAX_WORLDS in CMakeLists.txt.");
@@ -33,7 +34,7 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
         auto& batch = batches.emplace_back();
         batch.envRoots.reserve(batchSize);
         batch.b3WorldIds.reserve(batchSize);
-        batch.agentObservations.reserve(batchSize);
+        batch.agentObservations.resize(batchSize);
 
         for (std::size_t envI = 0; envI < batchSize; ++envI)
         {
@@ -54,11 +55,41 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
         Systems::Transform::Register(batch.sharedEcs);
         // Physics system
         Systems::Physics::Register(batch.sharedEcs, batch.b3WorldIds, fixedDeltaTime);
+
+        // Start worker
+        batch.worker = std::jthread([&, threadI](const std::stop_token& stopToken) {
+            spdlog::debug("[Worker {}] Worker started", threadI);
+
+            while (true)
+            {
+                jobsAvailableBarrier.arrive_and_wait();
+
+                if (stopToken.stop_requested()) break;
+
+                const auto ecsContinue = batch.sharedEcs.progress(fixedDeltaTime);
+                if (!ecsContinue)
+                {
+                    spdlog::warn("[Worker {}] ECS has quit?", threadI);
+                }
+
+                workDoneBarrier.arrive_and_wait();
+            }
+
+            spdlog::debug("[Worker {}] Worker stopped", threadI);
+        });
     }
 }
 
 pulsar::BatchedEnvironment::~BatchedEnvironment()
 {
+    // Finish all work
+    for (auto& batch : batches)
+    {
+        batch.worker.request_stop();
+    }
+
+    jobsAvailableBarrier.arrive_and_wait();
+
     for (const auto& batch : batches)
     {
         for (const auto& b3WorldId : batch.b3WorldIds)
@@ -68,9 +99,9 @@ pulsar::BatchedEnvironment::~BatchedEnvironment()
     }
 }
 
-bool pulsar::BatchedEnvironment::stepAll(const float dt) const
+bool pulsar::BatchedEnvironment::stepAll()
 {
-    return std::ranges::all_of(batches, [dt](const auto& batch) {
-        return batch.sharedEcs.progress(dt);
-    });
+    jobsAvailableBarrier.arrive_and_wait();
+    workDoneBarrier.arrive_and_wait();
+    return true;
 }

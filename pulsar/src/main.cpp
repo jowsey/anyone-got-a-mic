@@ -10,6 +10,9 @@
 
 #include "CLI/CLI.hpp"
 #include "spdlog/spdlog.h"
+#include "util/Fmt.h"
+
+#include <ranges>
 
 int main(const int argc, char* argv[])
 {
@@ -49,9 +52,9 @@ int main(const int argc, char* argv[])
         const auto tickRateHz = tickRateOpt->as<float>();
 
         const float fixedDeltaTime = 1.0f / tickRateHz;
-        const auto batch = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
+        auto batch = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
 
-        while (batch.stepAll(fixedDeltaTime))
+        while (batch.stepAll())
         {
         }
     });
@@ -79,20 +82,21 @@ int main(const int argc, char* argv[])
 
         for (std::uint32_t benchThreads = threadStep; benchThreads <= hardwareThreads; benchThreads += threadStep)
         {
-            const auto batch = pulsar::BatchedEnvironment("benchmark", 125, benchThreads, fixedDeltaTime);
+            constexpr auto batchSize = 128;
+            auto batch = pulsar::BatchedEnvironment("benchmark", batchSize, benchThreads, fixedDeltaTime);
 
-            std::uint32_t ticksRan = 0;
+            std::uint64_t totalEnvTicks = 0;
             const auto startTime = std::chrono::steady_clock::now();
 
             while (true)
             {
-                if (!batch.stepAll(fixedDeltaTime))
+                if (!batch.stepAll())
                 {
                     spdlog::error("Batch failed to step (?)");
                     break;
                 }
 
-                ++ticksRan;
+                totalEnvTicks += batchSize * benchThreads;
 
                 const auto elapsedTime = std::chrono::steady_clock::now() - startTime;
                 if (std::chrono::duration<float>(elapsedTime).count() >= interval)
@@ -101,15 +105,18 @@ int main(const int argc, char* argv[])
                 }
             }
 
-            results[benchThreads] = ticksRan;
-            spdlog::info("{} threads: {:L} ticks in {}s ({:L}/s)", benchThreads, ticksRan, interval, static_cast<float>(ticksRan) / interval);
+            results[benchThreads] = totalEnvTicks;
+            auto prettyTotal = pulsar::Utils::Fmt::prettyPrint(static_cast<double>(totalEnvTicks));
+            auto prettyAvg = pulsar::Utils::Fmt::prettyPrint(static_cast<double>(totalEnvTicks) / interval);
+            spdlog::info("{} threads: {} ticks in {}s ({}/s)", benchThreads, prettyTotal, interval, prettyAvg);
         }
 
         const auto fastest = std::ranges::max_element(results, [](const auto& a, const auto& b) {
             return a.second < b.second;
         });
 
-        spdlog::info("Fastest: {} threads ({:L}/s)", fastest->first, static_cast<float>(fastest->second) / interval);
+        auto prettyBestAvg = pulsar::Utils::Fmt::prettyPrint(static_cast<double>(fastest->second) / interval);
+        spdlog::info("Fastest: {} threads ({}/s)", fastest->first, prettyBestAvg);
     });
 
     CLI11_PARSE(app, argc, argv);

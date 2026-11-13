@@ -20,6 +20,8 @@ add_executable(pulsar
         src/env/components/Environment.h
         src/util/FormatConversion.cpp
         src/util/FormatConversion.h
+        src/util/Fmt.cpp
+        src/util/Fmt.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")
