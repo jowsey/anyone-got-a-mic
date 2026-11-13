@@ -90,8 +90,13 @@ pulsar::BatchedEnvironment::~BatchedEnvironment()
 
     jobsAvailableBarrier.arrive_and_wait();
 
-    for (const auto& batch : batches)
+    for (auto& batch : batches)
     {
+        if (batch.worker.joinable())
+        {
+            batch.worker.join();
+        }
+
         for (const auto& b3WorldId : batch.b3WorldIds)
         {
             b3DestroyWorld(b3WorldId);
