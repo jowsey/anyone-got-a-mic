@@ -57,7 +57,7 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
         Systems::Physics::Register(batch.sharedEcs, batch.b3WorldIds, fixedDeltaTime);
 
         // Start worker
-        batch.worker = std::jthread([&, threadI](const std::stop_token& stopToken) {
+        batch.worker = std::jthread([&, threadI, fixedDeltaTime](const std::stop_token& stopToken) {
             spdlog::debug("[Worker {}] Worker started", threadI);
 
             while (true)
