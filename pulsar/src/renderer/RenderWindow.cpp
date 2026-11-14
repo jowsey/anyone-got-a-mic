@@ -136,7 +136,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
     // Buffers
     SDL_GPUBufferCreateInfo vertexBufferCI{.usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = VertexBufferSize};
     SDL_GPUBufferCreateInfo indexBufferCI{.usage = SDL_GPU_BUFFERUSAGE_INDEX, .size = IndexBufferSize};
-    SDL_GPUBufferCreateInfo indirectBufferCI{.usage = SDL_GPU_BUFFERUSAGE_INDIRECT, .size = MaxDrawnObjects * sizeof(SDL_GPUIndirectDrawCommand)};
+    SDL_GPUBufferCreateInfo indirectBufferCI{.usage = SDL_GPU_BUFFERUSAGE_INDIRECT, .size = MaxDrawnObjects * sizeof(SDL_GPUIndexedIndirectDrawCommand)};
     SDL_GPUBufferCreateInfo objectDataBufferCI{.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, .size = MaxDrawnObjects * sizeof(ObjectData)};
     vertexBuffer = SDL_CreateGPUBuffer(device, &vertexBufferCI);
     indexBuffer = SDL_CreateGPUBuffer(device, &indexBufferCI);
