@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.4)
+cmake_minimum_required(VERSION 3.28...4.4)
 project(pulsar VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -94,6 +94,7 @@ include(FetchContent)
 FetchContent_Declare(
         spdlog
         URL "https://github.com/gabime/spdlog/archive/refs/tags/v1.17.0.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(spdlog)
@@ -103,6 +104,7 @@ target_link_libraries(pulsar PRIVATE spdlog::spdlog)
 FetchContent_Declare(
         glm
         URL "https://github.com/g-truc/glm/archive/refs/tags/1.0.3.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(glm)
@@ -112,6 +114,7 @@ target_link_libraries(pulsar PRIVATE glm)
 FetchContent_Declare(
         flecs
         URL "https://github.com/SanderMertens/flecs/archive/refs/tags/v4.2.0.tar.gz"
+        SYSTEM
 )
 
 set(FLECS_SHARED OFF CACHE BOOL "" FORCE)
@@ -124,6 +127,7 @@ target_link_libraries(pulsar PRIVATE flecs::flecs_static)
 FetchContent_Declare(
         box3d
         URL "https://github.com/erincatto/box3d/archive/a8ac09f364de4cb099b10b0e331e378c9f0d3638.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(box3d)
@@ -134,6 +138,7 @@ target_link_libraries(pulsar PRIVATE box3d::box3d)
 FetchContent_Declare(
         CLI11
         URL "https://github.com/CLIUtils/CLI11/releases/download/v2.7.2/CLI11-2.7.2-Source.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(CLI11)
@@ -143,28 +148,11 @@ target_link_libraries(pulsar PRIVATE CLI11::CLI11)
 FetchContent_Declare(
         sdl3
         URL "https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.4.20.tar.gz"
+        SYSTEM
 )
 
 FetchContent_MakeAvailable(sdl3)
 target_link_libraries(pulsar PRIVATE SDL3::SDL3)
-
-# crow # saving for later if we want to send map data for rendering
-## asio
-#FetchContent_Declare(
-#        asio
-#        URL "https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-38-2.tar.gz"
-#)
-#
-#FetchContent_MakeAvailable(asio)
-#set(ASIO_INCLUDE_DIR "${asio_SOURCE/DIR}/asio/include")
-#
-#FetchContent_Declare(
-#        crow
-#        URL "https://github.com/CrowCpp/Crow/archive/refs/tags/v1.3.5.tar.gz"
-#)
-#
-#FetchContent_MakeAvailable(crow)
-#target_link_libraries(pulsar PRIVATE Crow::Crow)
 
 ## nanobind
 #set(Python_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/../trainer/.venv/bin/python")
