@@ -146,12 +146,12 @@ target_link_libraries(pulsar PRIVATE CLI11::CLI11)
 
 # SDL3
 FetchContent_Declare(
-        sdl3
+        SDL3
         URL "https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.4.20.tar.gz"
         SYSTEM
 )
 
-FetchContent_MakeAvailable(sdl3)
+FetchContent_MakeAvailable(SDL3)
 target_link_libraries(pulsar PRIVATE SDL3::SDL3)
 
 ## nanobind
