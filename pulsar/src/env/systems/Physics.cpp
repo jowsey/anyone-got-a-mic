@@ -15,12 +15,14 @@ void pulsar::Systems::Physics::Register(const flecs::world& world, const std::ve
                 const auto transform = it.field<Components::Transform>(0);
                 const auto body = it.field<Components::RigidBody>(1);
 
-                if (body->isTeleportDirty)
+                for (const auto i : it)
                 {
-                    const glm::vec3& pos = transform->localPosition;
-                    const glm::quat& rot = transform->localRotation;
-                    b3Body_SetTransform(body->bodyId, Utils::Formats::glmToB3Vec3(pos), Utils::Formats::glmToB3Quat(rot));
-                    body->isTeleportDirty = false;
+                    if (!body[i].isTeleportDirty) continue;
+
+                    const glm::vec3& pos = transform[i].localPosition;
+                    const glm::quat& rot = transform[i].localRotation;
+                    b3Body_SetTransform(body[i].bodyId, Utils::Formats::glmToB3Vec3(pos), Utils::Formats::glmToB3Quat(rot));
+                    body[i].isTeleportDirty = false;
                 }
             }
 
