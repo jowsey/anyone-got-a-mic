@@ -85,7 +85,7 @@ set_target_properties(pulsar PROPERTIES COMPILE_WARNING_AS_ERROR ON)
 if (MSVC)
     target_compile_options(pulsar PRIVATE /W4)
 else ()
-    target_compile_options(pulsar PRIVATE -Wall -Wextra -pedantic)
+    target_compile_options(pulsar PRIVATE -Wall -Wextra -pedantic -Wno-missing-field-initializers)
 endif ()
 
 include(FetchContent)
