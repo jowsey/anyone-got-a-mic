@@ -22,6 +22,8 @@ add_executable(pulsar
         src/util/FormatConversion.h
         src/util/Fmt.cpp
         src/util/Fmt.h
+        src/renderer/RenderWindow.cpp
+        src/renderer/RenderWindow.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")
@@ -136,6 +138,15 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(CLI11)
 target_link_libraries(pulsar PRIVATE CLI11::CLI11)
+
+# SDL3
+FetchContent_Declare(
+        sdl3
+        URL "https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.4.20.tar.gz"
+)
+
+FetchContent_MakeAvailable(sdl3)
+target_link_libraries(pulsar PRIVATE SDL3::SDL3)
 
 # crow # saving for later if we want to send map data for rendering
 ## asio

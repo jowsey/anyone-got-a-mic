@@ -9,6 +9,7 @@
 #include "env/BatchedEnvironment.h"
 
 #include "CLI/CLI.hpp"
+#include "renderer/RenderWindow.h"
 #include "spdlog/spdlog.h"
 #include "util/Fmt.h"
 
@@ -29,6 +30,7 @@ int main(const int argc, char* argv[])
 
     argv = app.ensure_utf8(argv);
 
+    // `pulsar`
     std::uint32_t hardwareThreads = std::thread::hardware_concurrency();
 
     const auto batchSizeOpt = app.add_option("-b,--batch-size", "number of environments per worker")->default_val(128);
@@ -54,11 +56,24 @@ int main(const int argc, char* argv[])
         const float fixedDeltaTime = 1.0f / tickRateHz;
         auto batch = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
 
+        auto renderThread = std::jthread([&](const std::stop_token& stopToken) {
+            auto window = pulsar::Renderer::RenderWindow(batch, batch.getBatch(0), 0);
+
+            while (!stopToken.stop_requested())
+            {
+                window.render();
+            }
+        });
+
         while (batch.stepAll())
         {
         }
+
+        renderThread.request_stop();
+        if (renderThread.joinable()) renderThread.join();
     });
 
+    // `pulsar benchmark`
     const auto benchmarkCmd = app.add_subcommand("benchmark", "benchmark batch & thread counts");
     const auto benchmarkIntervalOpt = benchmarkCmd->add_option("-i,--interval", "benchmark interval (seconds)")->default_val(5);
     const auto benchmarkThreadStepOpt = benchmarkCmd->add_option("-s,--step", "thread step size (threads)")->default_val(2);
