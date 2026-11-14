@@ -137,13 +137,13 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
     SDL_GPUBufferCreateInfo vertexBufferCI{.usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = VertexBufferSize};
     SDL_GPUBufferCreateInfo indexBufferCI{.usage = SDL_GPU_BUFFERUSAGE_INDEX, .size = IndexBufferSize};
     SDL_GPUBufferCreateInfo indirectBufferCI{.usage = SDL_GPU_BUFFERUSAGE_INDIRECT, .size = MaxDrawnObjects * sizeof(SDL_GPUIndirectDrawCommand)};
-    SDL_GPUBufferCreateInfo transformsBufferCI{.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, .size = MaxDrawnObjects * sizeof(glm::mat4)};
+    SDL_GPUBufferCreateInfo objectDataBufferCI{.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, .size = MaxDrawnObjects * sizeof(ObjectData)};
     vertexBuffer = SDL_CreateGPUBuffer(device, &vertexBufferCI);
     indexBuffer = SDL_CreateGPUBuffer(device, &indexBufferCI);
     indirectBuffer = SDL_CreateGPUBuffer(device, &indirectBufferCI);
-    transformsBuffer = SDL_CreateGPUBuffer(device, &transformsBufferCI);
+    objectDataBuffer = SDL_CreateGPUBuffer(device, &objectDataBufferCI);
 
-    SDL_GPUTransferBufferCreateInfo transferBufferCI{.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = vertexBufferCI.size + indexBufferCI.size + indirectBufferCI.size + transformsBufferCI.size};
+    SDL_GPUTransferBufferCreateInfo transferBufferCI{.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = vertexBufferCI.size + indexBufferCI.size + indirectBufferCI.size + objectDataBufferCI.size};
     scratchTransferBuffer = SDL_CreateGPUTransferBuffer(device, &transferBufferCI);
 
     // Hook into ECS
@@ -229,7 +229,7 @@ void pulsar::Renderer::RenderWindow::render()
         const SDL_GPUTransferBufferLocation drawCommandsSrc{.transfer_buffer = scratchTransferBuffer, .offset = 0};
         const SDL_GPUBufferRegion drawCommandsDst{.buffer = indirectBuffer, .offset = 0, .size = drawCommandsBytes};
         const SDL_GPUTransferBufferLocation objectDataSrc{.transfer_buffer = scratchTransferBuffer, .offset = drawCommandsBytes};
-        const SDL_GPUBufferRegion objectDataDst{.buffer = transformsBuffer, .offset = 0, .size = objectDataBytes};
+        const SDL_GPUBufferRegion objectDataDst{.buffer = objectDataBuffer, .offset = 0, .size = objectDataBytes};
         SDL_UploadToGPUBuffer(copyPass, &drawCommandsSrc, &drawCommandsDst, true);
         SDL_UploadToGPUBuffer(copyPass, &objectDataSrc, &objectDataDst, true);
 
@@ -258,7 +258,7 @@ void pulsar::Renderer::RenderWindow::render()
         SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
         SDL_PushGPUVertexUniformData(commandBuffer, 0, &sceneConstants, sizeof(SceneConstants));
-        SDL_BindGPUVertexStorageBuffers(renderPass, 0, &transformsBuffer, 1);
+        SDL_BindGPUVertexStorageBuffers(renderPass, 0, &objectDataBuffer, 1);
 
         SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, indirectBuffer, 0, drawCommands.size());
         SDL_EndGPURenderPass(renderPass);
@@ -284,7 +284,7 @@ void pulsar::Renderer::RenderWindow::dispose() const
     SDL_ReleaseGPUBuffer(device, vertexBuffer);
     SDL_ReleaseGPUBuffer(device, indexBuffer);
     SDL_ReleaseGPUBuffer(device, indirectBuffer);
-    SDL_ReleaseGPUBuffer(device, transformsBuffer);
+    SDL_ReleaseGPUBuffer(device, objectDataBuffer);
     SDL_ReleaseGPUTransferBuffer(device, scratchTransferBuffer);
 
     SDL_ReleaseGPUGraphicsPipeline(device, pipeline);

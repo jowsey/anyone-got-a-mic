@@ -50,7 +50,7 @@ namespace pulsar::Renderer
         SDL_GPUBuffer* vertexBuffer;
         SDL_GPUBuffer* indexBuffer;
         SDL_GPUBuffer* indirectBuffer;
-        SDL_GPUBuffer* transformsBuffer;
+        SDL_GPUBuffer* objectDataBuffer;
         SDL_GPUTransferBuffer* scratchTransferBuffer;
         SDL_GPUTexture* depthTexture;
 
