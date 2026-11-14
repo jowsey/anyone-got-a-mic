@@ -38,7 +38,7 @@ namespace pulsar
 
         ~BatchedEnvironment();
 
-        [[nodiscard]] bool stepAll();
+        void stepAll();
 
         [[nodiscard]] const ThreadBatch& getBatch(std::size_t index) const;
     };

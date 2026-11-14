@@ -10,20 +10,22 @@ add_executable(pulsar
         src/main.cpp
         src/env/BatchedEnvironment.cpp
         src/env/BatchedEnvironment.h
-        src/env/components/Transform.h
+        src/env/components/Environment.h
         src/env/components/EnvironmentId.h
-        src/env/systems/Transform.cpp
-        src/env/systems/Transform.h
+        src/env/components/MeshRenderer.h
+        src/env/components/RigidBody.h
+        src/env/components/Transform.h
         src/env/systems/Physics.cpp
         src/env/systems/Physics.h
-        src/env/components/RigidBody.h
-        src/env/components/Environment.h
+        src/env/systems/Transform.cpp
+        src/env/systems/Transform.h
+        src/renderer/Primitives.h
+        src/renderer/RenderWindow.cpp
+        src/renderer/RenderWindow.h
         src/util/FormatConversion.cpp
         src/util/FormatConversion.h
         src/util/Fmt.cpp
         src/util/Fmt.h
-        src/renderer/RenderWindow.cpp
-        src/renderer/RenderWindow.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")
@@ -108,6 +110,10 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(glm)
+target_compile_definitions(glm PUBLIC
+        GLM_FORCE_DEPTH_ZERO_TO_ONE
+        GLM_FORCE_LEFT_HANDED
+)
 target_link_libraries(pulsar PRIVATE glm)
 
 # flecs
@@ -126,7 +132,7 @@ target_link_libraries(pulsar PRIVATE flecs::flecs_static)
 # box3d
 FetchContent_Declare(
         box3d
-        URL "https://github.com/erincatto/box3d/archive/a8ac09f364de4cb099b10b0e331e378c9f0d3638.tar.gz"
+        URL "https://github.com/erincatto/box3d/archive/be8c7318901dbb14b9fbb26fe0a7a48850f53b0e.tar.gz"
         SYSTEM
 )
 
@@ -153,6 +159,44 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(SDL3)
 target_link_libraries(pulsar PRIVATE SDL3::SDL3)
+
+# Shader compilation
+# todo allow headless build
+find_program(SHADERCROSS_EXE shadercross REQUIRED)
+
+if (APPLE)
+    set(SHADER_EXT ".msl")
+elseif (WIN32 OR UNIX)
+    set(SHADER_EXT ".spv")
+endif ()
+
+set(SHADER_OUT_DIR "${CMAKE_BINARY_DIR}/shaders")
+file(MAKE_DIRECTORY ${SHADER_OUT_DIR})
+
+function(compile_hlsl SOURCE_FILE STAGE ENTRY_POINT OUTPUT_NAME)
+    set(INPUT_PATH "${CMAKE_SOURCE_DIR}/${SOURCE_FILE}")
+    set(OUTPUT_PATH "${SHADER_OUT_DIR}/${OUTPUT_NAME}${SHADER_EXT}")
+
+    add_custom_command(
+            OUTPUT "${OUTPUT_PATH}"
+            COMMAND "${SHADERCROSS_EXE}" "${INPUT_PATH}"
+            -t "${STAGE}"
+            -e "${ENTRY_POINT}"
+            -o "${OUTPUT_PATH}"
+            DEPENDS "${INPUT_PATH}"
+            COMMENT "Compiling ${SOURCE_FILE} (${STAGE}, ${ENTRY_POINT}) to ${OUTPUT_NAME}${SHADER_EXT}"
+            VERBATIM
+    )
+
+    list(APPEND COMPILED_SHADERS "${OUTPUT_PATH}")
+    set(COMPILED_SHADERS ${COMPILED_SHADERS} PARENT_SCOPE)
+endfunction()
+
+compile_hlsl("src/renderer/shaders/lit.hlsl" "vertex" "VSMain" "lit_vert")
+compile_hlsl("src/renderer/shaders/lit.hlsl" "fragment" "PSMain" "lit_frag")
+
+add_custom_target(compile_shaders ALL DEPENDS ${COMPILED_SHADERS})
+add_dependencies(pulsar compile_shaders)
 
 ## nanobind
 #set(Python_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/../trainer/.venv/bin/python")

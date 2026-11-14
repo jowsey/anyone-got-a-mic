@@ -104,11 +104,10 @@ pulsar::BatchedEnvironment::~BatchedEnvironment()
     }
 }
 
-bool pulsar::BatchedEnvironment::stepAll()
+void pulsar::BatchedEnvironment::stepAll()
 {
     jobsAvailableBarrier.arrive_and_wait();
     workDoneBarrier.arrive_and_wait();
-    return true;
 }
 
 const pulsar::ThreadBatch& pulsar::BatchedEnvironment::getBatch(const std::size_t index) const
