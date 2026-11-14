@@ -110,3 +110,8 @@ bool pulsar::BatchedEnvironment::stepAll()
     workDoneBarrier.arrive_and_wait();
     return true;
 }
+
+const pulsar::ThreadBatch& pulsar::BatchedEnvironment::getBatch(const std::size_t index) const
+{
+    return batches.at(index);
+}
