@@ -12,7 +12,6 @@
 #include "SDL3/SDL_timer.h"
 #include "spdlog/spdlog.h"
 
-#include <d3d10effect.h>
 #include <filesystem>
 
 SDL_GPUShader* pulsar::Renderer::RenderWindow::LoadShader(std::filesystem::path path, const SDL_GPUShaderStage stage, const std::string& entryPoint, const std::uint32_t numUniformBuffers, const std::uint32_t numStorageBuffers) const
@@ -102,7 +101,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = depthTextureFormat,
         .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
-        .width = 1280,
+        .width = 1280, // todo handle resizing
         .height = 720,
         .layer_count_or_depth = 1,
         .num_levels = 1
@@ -148,7 +147,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
 
     // Hook into ECS
     snapshotSystem =
-        batch.sharedEcs.system<Components::EnvironmentId, Components::Transform, Components::MeshRenderer>("SnapshotSystem")
+        batch.sharedEcs.system<const Components::EnvironmentId, const Components::Transform, const Components::MeshRenderer>("SnapshotSystem")
             .kind(flecs::PostUpdate)
             .run([this](flecs::iter& it) {
                 const auto now = SDL_GetTicksNS();
@@ -169,7 +168,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
 
                         for (const auto i : it)
                         {
-                            if (envId[i].envId != this->envIndex) continue;
+                            if (envId[i].envId != this->envIndex) continue; // todo we can almost certainly filter this at an ECS level
 
                             const auto& meshHandle = meshRegistry[meshRenderer[i].meshIndex];
                             drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, i);
@@ -220,7 +219,7 @@ void pulsar::Renderer::RenderWindow::render()
         auto* scratchPtr = static_cast<std::uint8_t*>(SDL_MapGPUTransferBuffer(device, scratchTransferBuffer, true));
         const std::uint32_t drawCommandsBytes = drawCommands.size() * sizeof(SDL_GPUIndexedIndirectDrawCommand);
         const std::uint32_t objectDataBytes = objectData.size() * sizeof(ObjectData);
-        SDL_memcpy(scratchPtr, drawCommands.data(), drawCommandsBytes);
+        SDL_memcpy(scratchPtr, drawCommands.data(), drawCommandsBytes); // todo we should check if this actually changed
         SDL_memcpy(scratchPtr + drawCommandsBytes, objectData.data(), objectDataBytes);
         SDL_UnmapGPUTransferBuffer(device, scratchTransferBuffer);
 
@@ -273,7 +272,7 @@ void pulsar::Renderer::RenderWindow::render()
     }
 }
 
-void pulsar::Renderer::RenderWindow::dispose() const
+void pulsar::Renderer::RenderWindow::dispose()
 {
     snapshotSystem.destruct();
 

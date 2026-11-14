@@ -14,7 +14,7 @@ namespace pulsar::Renderer
 {
     class RenderWindow
     {
-        struct alignas(16) Vertex
+        struct Vertex
         {
             glm::vec3 position;
             glm::vec4 colour;
@@ -64,7 +64,7 @@ namespace pulsar::Renderer
         std::atomic<bool> isQuitting;
 
         std::uint64_t lastSnapshotTimeNS;
-        std::uint64_t snapshotUpdateHz;
+        std::uint32_t snapshotUpdateHz;
         flecs::system snapshotSystem;
 
         std::mutex snapshotMutex;
@@ -82,7 +82,7 @@ namespace pulsar::Renderer
 
         void pollEvents();
         void render();
-        void dispose() const;
+        void dispose();
 
         [[nodiscard]] std::uint32_t RegisterMesh(const MeshData& data);
         [[nodiscard]] bool getIsQuitting() const;
