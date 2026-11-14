@@ -6,12 +6,6 @@
 #include "SDL3/SDL_stdinc.h"
 #include "spdlog/spdlog.h"
 
-void pulsar::Renderer::RenderWindow::exit()
-{
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-}
-
 pulsar::Renderer::RenderWindow::RenderWindow(const BatchedEnvironment& env, const ThreadBatch& batch, const std::size_t envIndex)
     : env(env), batch(batch), envIndex(envIndex)
 {
@@ -29,6 +23,8 @@ pulsar::Renderer::RenderWindow::RenderWindow(const BatchedEnvironment& env, cons
         spdlog::error("Failed to create SDL window: {}", SDL_GetError());
         std::exit(1);
     }
+
+    active = true;
 }
 
 void pulsar::Renderer::RenderWindow::render()
@@ -48,4 +44,17 @@ void pulsar::Renderer::RenderWindow::render()
     }
 
     // todo
+}
+
+void pulsar::Renderer::RenderWindow::exit()
+{
+    active = false;
+
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+}
+
+bool pulsar::Renderer::RenderWindow::getActive() const
+{
+    return active;
 }

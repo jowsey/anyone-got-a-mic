@@ -56,20 +56,24 @@ int main(const int argc, char* argv[])
         const float fixedDeltaTime = 1.0f / tickRateHz;
         auto batch = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
 
-        auto renderThread = std::jthread([&](const std::stop_token& stopToken) {
+        std::atomic<bool> windowClosed{false};
+
+        auto renderThread = std::jthread([&] {
             auto window = pulsar::Renderer::RenderWindow(batch, batch.getBatch(0), 0);
 
-            while (!stopToken.stop_requested())
+            while (!windowClosed && window.getActive())
             {
                 window.render();
             }
+
+            windowClosed = true;
         });
 
-        while (batch.stepAll())
+        while (batch.stepAll() && !windowClosed)
         {
         }
 
-        renderThread.request_stop();
+        windowClosed = true;
         if (renderThread.joinable()) renderThread.join();
     });
 

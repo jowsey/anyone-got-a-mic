@@ -7,16 +7,18 @@ namespace pulsar::Renderer
     class RenderWindow
     {
         SDL_Window* window;
+        bool active;
 
         const BatchedEnvironment& env;
         const ThreadBatch& batch;
         std::size_t envIndex;
 
-        void exit();
-
       public:
         explicit RenderWindow(const BatchedEnvironment& env, const ThreadBatch& batch, std::size_t envIndex);
 
         void render();
+        void exit();
+
+        [[nodiscard]] bool getActive() const;
     };
 }
