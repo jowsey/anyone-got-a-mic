@@ -62,7 +62,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
     SDL_Init(SDL_INIT_VIDEO);
 
     device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, true, nullptr);
-    window = SDL_CreateWindow("pulsar", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN);
+    window = SDL_CreateWindow("pulsar", 1280, 720, SDL_WINDOW_RESIZABLE);
     SDL_ClaimWindowForGPUDevice(device, window);
 
     // Shaders + pipeline
@@ -264,12 +264,6 @@ void pulsar::Renderer::RenderWindow::render()
     }
 
     SDL_SubmitGPUCommandBuffer(commandBuffer);
-
-    // Un-hide after first render, prevents black flicker
-    if (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN)
-    {
-        SDL_ShowWindow(window);
-    }
 }
 
 void pulsar::Renderer::RenderWindow::dispose()
