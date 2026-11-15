@@ -162,9 +162,9 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
 
                     while (it.next())
                     {
-                        const auto envId = it.field<Components::EnvironmentId>(0);
-                        const auto transform = it.field<Components::Transform>(1);
-                        const auto meshRenderer = it.field<Components::MeshRenderer>(2);
+                        const auto envId = it.field<const Components::EnvironmentId>(0);
+                        const auto transform = it.field<const Components::Transform>(1);
+                        const auto meshRenderer = it.field<const Components::MeshRenderer>(2);
 
                         for (const auto i : it)
                         {
