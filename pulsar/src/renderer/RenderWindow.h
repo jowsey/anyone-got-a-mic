@@ -40,19 +40,21 @@ namespace pulsar::Renderer
         };
 
         static constexpr std::uint32_t VertexBufferSize = 1024 * 256; // 256 KB
-        static constexpr std::uint32_t IndexBufferSize = 1024 * 128;  // 128 KB
+        static constexpr std::uint32_t IndexBufferSize = 1024 * 128; // 128 KB
         static constexpr std::uint32_t MaxDrawnObjects = 1024;
 
-        SDL_Window* window;
-        SDL_GPUDevice* device;
-        SDL_GPUGraphicsPipeline* pipeline;
+        SDL_Window* window{nullptr};
+        SDL_GPUDevice* device{nullptr};
+        SDL_GPUGraphicsPipeline* pipeline{nullptr};
 
-        SDL_GPUBuffer* vertexBuffer;
-        SDL_GPUBuffer* indexBuffer;
-        SDL_GPUBuffer* indirectBuffer;
-        SDL_GPUBuffer* objectDataBuffer;
-        SDL_GPUTransferBuffer* scratchTransferBuffer;
-        SDL_GPUTexture* depthTexture;
+        SDL_GPUBuffer* vertexBuffer{nullptr};
+        SDL_GPUBuffer* indexBuffer{nullptr};
+        SDL_GPUBuffer* indirectBuffer{nullptr};
+        SDL_GPUBuffer* objectDataBuffer{nullptr};
+        SDL_GPUTransferBuffer* scratchTransferBuffer{nullptr};
+        SDL_GPUTexture* depthTexture{nullptr};
+
+        SDL_GPUTextureFormat depthTextureFormat{SDL_GPU_TEXTUREFORMAT_D16_UNORM};
 
         std::vector<MeshHandle> meshRegistry{};
 
@@ -67,11 +69,11 @@ namespace pulsar::Renderer
         std::uint32_t snapshotUpdateHz;
         flecs::system snapshotSystem;
 
-        std::mutex snapshotMutex;
+        std::mutex renderMutex;
 
         [[nodiscard]] SDL_GPUShader* LoadShader(std::filesystem::path path, SDL_GPUShaderStage stage, const std::string& entryPoint, uint32_t numUniformBuffers, uint32_t numStorageBuffers) const;
 
-      public:
+    public:
         struct MeshData
         {
             std::vector<Vertex> vertices;

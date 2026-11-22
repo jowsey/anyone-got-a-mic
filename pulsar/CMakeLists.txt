@@ -163,6 +163,29 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(SDL3)
 target_link_libraries(pulsar PRIVATE SDL3::SDL3)
 
+# Dear ImGui
+FetchContent_Declare(
+        imgui
+        URL "https://github.com/ocornut/imgui/archive/refs/tags/v1.93.0-docking.tar.gz"
+        SYSTEM
+)
+
+FetchContent_MakeAvailable(imgui)
+
+add_library(imgui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlgpu3.cpp
+)
+
+target_include_directories(imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+target_link_libraries(imgui PUBLIC SDL3::SDL3)
+target_link_libraries(pulsar PRIVATE imgui)
+
 # Shader compilation
 # todo allow headless build
 find_program(SHADERCROSS_EXE shadercross REQUIRED)
@@ -200,6 +223,14 @@ compile_hlsl("src/renderer/shaders/lit.hlsl" "fragment" "PSMain" "lit_frag")
 
 add_custom_target(compile_shaders ALL DEPENDS ${COMPILED_SHADERS})
 add_dependencies(pulsar compile_shaders)
+
+# Copy resources
+add_custom_target(copy_resources ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${CMAKE_SOURCE_DIR}/resources" "${DIST_DIR}/resources"
+        COMMENT "Syncing resources to build directory"
+)
+
+add_dependencies(pulsar copy_resources)
 
 ## nanobind
 #set(Python_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/../trainer/.venv/bin/python")

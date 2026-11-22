@@ -10,6 +10,9 @@
 #include "SDL3/SDL_init.h"
 #include "SDL3/SDL_stdinc.h"
 #include "SDL3/SDL_timer.h"
+#include "imgui.h"
+#include "imgui_impl_sdl3.h"
+#include "imgui_impl_sdlgpu3.h"
 #include "spdlog/spdlog.h"
 
 #include <filesystem>
@@ -62,13 +65,90 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
     SDL_Init(SDL_INIT_VIDEO);
 
     device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, true, nullptr);
-    window = SDL_CreateWindow("pulsar", 1280, 720, SDL_WINDOW_RESIZABLE);
+    window = SDL_CreateWindow("pulsar", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     SDL_ClaimWindowForGPUDevice(device, window);
 
+    const auto distPath = std::filesystem::path(SDL_GetBasePath()).parent_path().parent_path();
+
+    // ImGui
+    ImGui::CreateContext();
+    IMGUI_CHECKVERSION();
+
+    ImGuiIO& imguiIo = ImGui::GetIO();
+    imguiIo.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    ImGui_ImplSDL3_InitForSDLGPU(window);
+    ImGui_ImplSDLGPU3_InitInfo imguiInitInfo{
+        .Device = device,
+        .ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(device, window),
+        .MSAASamples = SDL_GPU_SAMPLECOUNT_1,
+        .SwapchainComposition = SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+        .PresentMode = SDL_GPU_PRESENTMODE_VSYNC
+    };
+    ImGui_ImplSDLGPU3_Init(&imguiInitInfo);
+
+#pragma region imgui styling
+    imguiIo.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    imguiIo.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+    imguiIo.Fonts->AddFontFromFileTTF((distPath / "resources/fonts/Inter_18pt-Regular.ttf").string().c_str());
+
+    // mirrored from https://github.com/jowsey/fate
+    constexpr auto brand = ImVec4(219 / 255.0f, 106 / 255.0f, 247 / 255.0f, 1);
+
+    constexpr auto brandWhite = ImVec4(255 / 255.0f, 255 / 255.0f, 255 / 255.0f, 1);
+    constexpr auto brandLightest = ImVec4(56 / 255.0f, 56 / 255.0f, 56 / 255.0f, 1);
+    constexpr auto brandLighter = ImVec4(48 / 255.0f, 48 / 255.0f, 48 / 255.0f, 1);
+    constexpr auto brandLight = ImVec4(42 / 255.0f, 42 / 255.0f, 42 / 255.0f, 1);
+    constexpr auto brandNeutral = ImVec4(32 / 255.0f, 32 / 255.0f, 32 / 255.0f, 1);
+    constexpr auto brandDark = ImVec4(26 / 255.0f, 26 / 255.0f, 26 / 255.0f, 1);
+    constexpr auto brandDarker = ImVec4(24 / 255.0f, 24 / 255.0f, 24 / 255.0f, 1);
+    // constexpr auto brandDarkest = ImVec4(12 / 255.0f, 12 / 255.0f, 12 / 255.0f, 1);
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.FontSizeBase = 16.0f;
+    style.WindowMenuButtonPosition = ImGuiDir_None;
+
+    style.WindowRounding = 4.0f;
+    style.PopupRounding = 4.0f;
+    style.FrameRounding = 4.0f;
+
+    style.PopupBorderSize = 0.0f;
+
+    // Windows
+    style.Colors[ImGuiCol_WindowBg] = brandLight;
+    style.Colors[ImGuiCol_TitleBg] = brandDark;
+    style.Colors[ImGuiCol_TitleBgActive] = brandDark;
+    style.Colors[ImGuiCol_MenuBarBg] = brandDark;
+    style.Colors[ImGuiCol_Border] = brandLightest;
+    style.Colors[ImGuiCol_PopupBg] = brandDarker;
+
+    // Value frames
+    style.Colors[ImGuiCol_FrameBg] = brandNeutral;
+    style.Colors[ImGuiCol_FrameBgHovered] = brandDark;
+    style.Colors[ImGuiCol_FrameBgActive] = brandDarker;
+
+    // Tabs
+    style.Colors[ImGuiCol_Tab] = brandLight;
+    style.Colors[ImGuiCol_TabHovered] = brandLight;
+    style.Colors[ImGuiCol_TabDimmed] = brandLight;
+
+    style.Colors[ImGuiCol_TabSelected] = brandLighter;
+    style.Colors[ImGuiCol_TabSelectedOverline] = brand;
+    style.Colors[ImGuiCol_TabDimmedSelected] = brandLighter;
+    style.Colors[ImGuiCol_TabDimmedSelectedOverline] = brandLighter;
+
+    // Checkboxes
+    style.Colors[ImGuiCol_CheckMark] = brandWhite;
+    style.Colors[ImGuiCol_CheckboxSelectedBg] = brandNeutral;
+
+    float contentScale = SDL_GetWindowDisplayScale(window);
+    style.FontScaleDpi = contentScale;
+    style.ScaleAllSizes(contentScale);
+#pragma endregion
+
     // Shaders + pipeline
-    const auto basePath = std::filesystem::path(SDL_GetBasePath());
-    SDL_GPUShader* vertShader = LoadShader(basePath / "shaders/lit_vert", SDL_GPU_SHADERSTAGE_VERTEX, "VSMain", 1, 1);
-    SDL_GPUShader* fragShader = LoadShader(basePath / "shaders/lit_frag", SDL_GPU_SHADERSTAGE_FRAGMENT, "PSMain", 0, 0);
+    SDL_GPUShader* vertShader = LoadShader(distPath / "resources/shaders/lit_vert", SDL_GPU_SHADERSTAGE_VERTEX, "VSMain", 1, 1);
+    SDL_GPUShader* fragShader = LoadShader(distPath / "resources/shaders/lit_frag", SDL_GPU_SHADERSTAGE_FRAGMENT, "PSMain", 0, 0);
 
     SDL_GPUColorTargetDescription colorDesc{.format = SDL_GetGPUSwapchainTextureFormat(device, window)};
 
@@ -95,18 +175,6 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
             .offset = offsetof(Vertex, colour)
         }
     };
-
-    auto depthTextureFormat = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
-    SDL_GPUTextureCreateInfo depthCI{
-        .type = SDL_GPU_TEXTURETYPE_2D,
-        .format = depthTextureFormat,
-        .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
-        .width = 1280, // todo handle resizing
-        .height = 720,
-        .layer_count_or_depth = 1,
-        .num_levels = 1
-    };
-    depthTexture = SDL_CreateGPUTexture(device, &depthCI);
 
     SDL_GPUGraphicsPipelineCreateInfo pipelineCI{
         .vertex_shader = vertShader,
@@ -148,50 +216,53 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
     // Hook into ECS
     snapshotSystem =
         batch.sharedEcs.system<const Components::EnvironmentId, const Components::Transform, const Components::MeshRenderer>("SnapshotSystem")
-            .kind(flecs::PostUpdate)
-            .run([this](flecs::iter& it) {
-                const auto now = SDL_GetTicksNS();
-                if (now - lastSnapshotTimeNS >= 1'000'000'000 / snapshotUpdateHz)
-                {
-                    std::lock_guard lock(snapshotMutex);
+             .kind(flecs::PostUpdate)
+             .run([this](flecs::iter& it) {
+                 const auto now = SDL_GetTicksNS();
+                 if (now - lastSnapshotTimeNS >= 1'000'000'000 / snapshotUpdateHz)
+                 {
+                     std::lock_guard lock(renderMutex);
 
-                    lastSnapshotTimeNS = now;
+                     lastSnapshotTimeNS = now;
 
-                    drawCommands.clear();
-                    objectData.clear();
+                     drawCommands.clear();
+                     objectData.clear();
 
-                    while (it.next())
-                    {
-                        const auto envId = it.field<const Components::EnvironmentId>(0);
-                        const auto transform = it.field<const Components::Transform>(1);
-                        const auto meshRenderer = it.field<const Components::MeshRenderer>(2);
+                     while (it.next())
+                     {
+                         const auto envId = it.field<const Components::EnvironmentId>(0);
+                         const auto transform = it.field<const Components::Transform>(1);
+                         const auto meshRenderer = it.field<const Components::MeshRenderer>(2);
 
-                        for (const auto i : it)
-                        {
-                            if (envId[i].envId != this->envIndex) continue; // todo we can almost certainly filter this at an ECS level
+                         for (const auto i : it)
+                         {
+                             if (envId[i].envId != this->envIndex) continue; // todo we can almost certainly filter this at an ECS level
 
-                            const auto& meshHandle = meshRegistry[meshRenderer[i].meshIndex];
-                            drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, i);
-                            objectData.emplace_back(transform[i].worldMatrix);
-                        }
-                    }
-                }
-                else
-                {
-                    it.fini();
-                }
-            });
+                             const auto& meshHandle = meshRegistry[meshRenderer[i].meshIndex];
+                             drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, i);
+                             objectData.emplace_back(transform[i].worldMatrix);
+                         }
+                     }
+                 }
+                 else
+                 {
+                     it.fini();
+                 }
+             });
 }
 
 void pulsar::Renderer::RenderWindow::pollEvents()
 {
     if (isQuitting) return;
 
+    std::lock_guard lock(renderMutex);
     SDL_Event event{};
 
     while (SDL_PollEvent(&event))
     {
-        if (event.type == SDL_EVENT_QUIT)
+        ImGui_ImplSDL3_ProcessEvent(&event);
+
+        if (event.type == SDL_EVENT_QUIT || (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window)))
         {
             isQuitting = true;
             break;
@@ -204,12 +275,73 @@ void pulsar::Renderer::RenderWindow::render()
     SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
     SDL_GPUTexture* swapchainTexture;
 
-    if (SDL_WaitAndAcquireGPUSwapchainTexture(commandBuffer, window, &swapchainTexture, nullptr, nullptr) && swapchainTexture)
-    {
-        std::lock_guard lock(snapshotMutex);
+    static std::uint32_t lastWindowWidth;
+    static std::uint32_t lastWindowHeight;
 
-        const auto view = glm::mat4(1.0f);
-        const auto proj = glm::perspective(glm::radians(90.0f), 1280.0f / 720.0f, 0.1f, 100.0f);
+    std::uint32_t windowWidth;
+    std::uint32_t windowHeight;
+
+    if (!SDL_WaitAndAcquireGPUSwapchainTexture(commandBuffer, window, &swapchainTexture, &windowWidth, &windowHeight))
+    {
+        spdlog::warn("Failed to acquire swapchain texture!");
+        SDL_CancelGPUCommandBuffer(commandBuffer);
+        return;
+    }
+
+    // window minimized or otherwise not rendering
+    if (!swapchainTexture || windowWidth == 0 || windowHeight == 0)
+    {
+        // spdlog::warn("Failed to acquire swapchain texture (should be fine?)");
+        SDL_SubmitGPUCommandBuffer(commandBuffer);
+        return;
+    }
+
+    if (windowWidth != lastWindowWidth || windowHeight != lastWindowHeight || !depthTexture)
+    {
+        lastWindowWidth = windowWidth;
+        lastWindowHeight = windowHeight;
+
+        if (depthTexture)
+        {
+            SDL_ReleaseGPUTexture(device, depthTexture);
+            depthTexture = nullptr;
+        }
+
+        const SDL_GPUTextureCreateInfo depthCI{
+            .type = SDL_GPU_TEXTURETYPE_2D,
+            .format = depthTextureFormat,
+            .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+            .width = windowWidth,
+            .height = windowHeight,
+            .layer_count_or_depth = 1,
+            .num_levels = 1
+        };
+        depthTexture = SDL_CreateGPUTexture(device, &depthCI);
+
+        // spdlog::info("Rebuilt depth texture ({}x{})", windowWidth, windowHeight);
+    }
+
+    {
+        std::lock_guard lock(renderMutex);
+
+        // ImGui UI
+        ImGui_ImplSDLGPU3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+
+        ImGuiIO& io = ImGui::GetIO();
+        io.DisplaySize = ImVec2(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+        ImGui::NewFrame();
+
+        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+
+        ImGui::Begin("pulsar");
+        ImGui::Text("%.1f FPS", io.Framerate);
+        ImGui::End();
+
+        ImGui::Render();
+
+        constexpr auto view = glm::mat4(1.0f);
+        const auto proj = glm::perspective(glm::radians(90.0f), windowWidth / static_cast<float>(windowHeight), 0.1f, 100.0f);
 
         sceneConstants = {
             .viewProj = proj * view
@@ -261,6 +393,22 @@ void pulsar::Renderer::RenderWindow::render()
 
         SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, indirectBuffer, 0, drawCommands.size());
         SDL_EndGPURenderPass(renderPass);
+
+        ImDrawData* imguiDrawData = ImGui::GetDrawData();
+        if (imguiDrawData && imguiDrawData->TotalVtxCount > 0)
+        {
+            ImGui_ImplSDLGPU3_PrepareDrawData(imguiDrawData, commandBuffer);
+
+            const SDL_GPUColorTargetInfo imguiColourTargetInfo{
+                .texture = swapchainTexture,
+                .load_op = SDL_GPU_LOADOP_LOAD,
+                .store_op = SDL_GPU_STOREOP_STORE,
+            };
+
+            SDL_GPURenderPass* imguiRenderPass = SDL_BeginGPURenderPass(commandBuffer, &imguiColourTargetInfo, 1, nullptr);
+            ImGui_ImplSDLGPU3_RenderDrawData(imguiDrawData, commandBuffer, imguiRenderPass);
+            SDL_EndGPURenderPass(imguiRenderPass);
+        }
     }
 
     SDL_SubmitGPUCommandBuffer(commandBuffer);
@@ -271,6 +419,10 @@ void pulsar::Renderer::RenderWindow::dispose()
     snapshotSystem.destruct();
 
     SDL_WaitForGPUIdle(device);
+
+    ImGui_ImplSDL3_Shutdown();
+    ImGui_ImplSDLGPU3_Shutdown();
+    ImGui::DestroyContext();
 
     SDL_ReleaseGPUTexture(device, depthTexture);
 
