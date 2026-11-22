@@ -49,6 +49,7 @@ int main(const int argc, char* argv[])
 
     app.parse_complete_callback([&] {
         std::println("\n  💫 pulsar v{}\n", PULSAR_VERSION);
+        std::cout << std::flush;
     });
 
     app.callback([&] {
