@@ -379,10 +379,10 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
         ImGui::Begin("pulsar");
 
-        ImGui::Text("%.1f FPS", io.Framerate);
+        ImGui::Text("%.1f FPS (%zu draws)", io.Framerate, drawCommands.size());
         ImGui::DragFloat3("Camera Position", &cameraState.position.x, 0.1f);
 
-        ImGui::Separator();
+        ImGui::SeparatorText("Environment");
 
         auto numEnvs = batch.envRoots.size();
         if (ImGui::ArrowButton("prevenv", ImGuiDir_Left))
