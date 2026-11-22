@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(DIST_DIR "${CMAKE_BINARY_DIR}/dist")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${DIST_DIR}/bin")
+
 add_executable(pulsar
         src/main.cpp
         src/env/BatchedEnvironment.cpp
@@ -170,7 +173,7 @@ elseif (WIN32 OR UNIX)
     set(SHADER_EXT ".spv")
 endif ()
 
-set(SHADER_OUT_DIR "${CMAKE_BINARY_DIR}/shaders")
+set(SHADER_OUT_DIR "${DIST_DIR}/resources/shaders")
 file(MAKE_DIRECTORY ${SHADER_OUT_DIR})
 
 function(compile_hlsl SOURCE_FILE STAGE ENTRY_POINT OUTPUT_NAME)
