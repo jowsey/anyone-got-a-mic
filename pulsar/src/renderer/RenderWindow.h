@@ -66,14 +66,15 @@ namespace pulsar::Renderer
             glm::quat rotation{1, 0, 0, 0};
         } cameraState;
 
+        const ThreadBatch& batch;
         std::size_t envIndex;
-        std::atomic<bool> isQuitting;
 
         std::uint64_t lastSnapshotTimeNS;
         std::uint32_t snapshotUpdateHz;
         flecs::system snapshotSystem;
 
         std::mutex renderMutex;
+        std::atomic<bool> isQuitting;
 
         [[nodiscard]] SDL_GPUShader* LoadShader(std::filesystem::path path, SDL_GPUShaderStage stage, const std::string& entryPoint, uint32_t numUniformBuffers, uint32_t numStorageBuffers) const;
 

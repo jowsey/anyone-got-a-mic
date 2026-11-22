@@ -59,7 +59,7 @@ SDL_GPUShader* pulsar::Renderer::RenderWindow::LoadShader(std::filesystem::path 
 }
 
 pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std::size_t envIndex)
-    : envIndex(envIndex), lastSnapshotTimeNS(SDL_GetTicksNS()), snapshotUpdateHz(60)
+    : batch(batch), envIndex(envIndex), lastSnapshotTimeNS(SDL_GetTicksNS()), snapshotUpdateHz(60)
 {
     // Init
     SDL_Init(SDL_INIT_VIDEO);
@@ -378,7 +378,29 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
         ImGui::Begin("pulsar");
+
         ImGui::Text("%.1f FPS", io.Framerate);
+        ImGui::DragFloat3("Camera Position", &cameraState.position.x, 0.1f);
+
+        ImGui::Separator();
+
+        auto numEnvs = batch.envRoots.size();
+        if (ImGui::ArrowButton("prevenv", ImGuiDir_Left))
+        {
+            if (envIndex > 0) envIndex--;
+            else envIndex = numEnvs - 1;
+        }
+
+        ImGui::SameLine();
+        ImGui::Text("Environment %zu / %zu", envIndex + 1, numEnvs);
+        ImGui::SameLine();
+
+        if (ImGui::ArrowButton("nextenv", ImGuiDir_Right))
+        {
+            if (envIndex < numEnvs - 1) envIndex++;
+            else envIndex = 0;
+        }
+
         ImGui::End();
 
         ImGui::Render();
@@ -394,18 +416,30 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
         auto* scratchPtr = static_cast<std::uint8_t*>(SDL_MapGPUTransferBuffer(device, scratchTransferBuffer, true));
         const std::uint32_t drawCommandsBytes = drawCommands.size() * sizeof(SDL_GPUIndexedIndirectDrawCommand);
         const std::uint32_t objectDataBytes = objectData.size() * sizeof(ObjectData);
-        SDL_memcpy(scratchPtr, drawCommands.data(), drawCommandsBytes); // todo we should check if this actually changed
-        SDL_memcpy(scratchPtr + drawCommandsBytes, objectData.data(), objectDataBytes);
+
+        // todo we should check if they actually changed
+        if (drawCommandsBytes > 0)
+            SDL_memcpy(scratchPtr, drawCommands.data(), drawCommandsBytes);
+        if (objectDataBytes > 0)
+            SDL_memcpy(scratchPtr + drawCommandsBytes, objectData.data(), objectDataBytes);
+
         SDL_UnmapGPUTransferBuffer(device, scratchTransferBuffer);
 
         SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
 
-        const SDL_GPUTransferBufferLocation drawCommandsSrc{.transfer_buffer = scratchTransferBuffer, .offset = 0};
-        const SDL_GPUBufferRegion drawCommandsDst{.buffer = indirectBuffer, .offset = 0, .size = drawCommandsBytes};
-        const SDL_GPUTransferBufferLocation objectDataSrc{.transfer_buffer = scratchTransferBuffer, .offset = drawCommandsBytes};
-        const SDL_GPUBufferRegion objectDataDst{.buffer = objectDataBuffer, .offset = 0, .size = objectDataBytes};
-        SDL_UploadToGPUBuffer(copyPass, &drawCommandsSrc, &drawCommandsDst, true);
-        SDL_UploadToGPUBuffer(copyPass, &objectDataSrc, &objectDataDst, true);
+        if (drawCommandsBytes > 0)
+        {
+            const SDL_GPUTransferBufferLocation drawCommandsSrc{.transfer_buffer = scratchTransferBuffer, .offset = 0};
+            const SDL_GPUBufferRegion drawCommandsDst{.buffer = indirectBuffer, .offset = 0, .size = drawCommandsBytes};
+            SDL_UploadToGPUBuffer(copyPass, &drawCommandsSrc, &drawCommandsDst, true);
+        }
+
+        if (objectDataBytes > 0)
+        {
+            const SDL_GPUTransferBufferLocation objectDataSrc{.transfer_buffer = scratchTransferBuffer, .offset = drawCommandsBytes};
+            const SDL_GPUBufferRegion objectDataDst{.buffer = objectDataBuffer, .offset = 0, .size = objectDataBytes};
+            SDL_UploadToGPUBuffer(copyPass, &objectDataSrc, &objectDataDst, true);
+        }
 
         SDL_EndGPUCopyPass(copyPass);
 
