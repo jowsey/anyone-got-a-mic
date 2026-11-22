@@ -132,7 +132,7 @@ target_link_libraries(pulsar PRIVATE flecs::flecs_static)
 # box3d
 FetchContent_Declare(
         box3d
-        URL "https://github.com/erincatto/box3d/archive/be8c7318901dbb14b9fbb26fe0a7a48850f53b0e.tar.gz"
+        URL "https://github.com/erincatto/box3d/archive/31d0e31331a106e175d9b161bb412957ab1c63b1.tar.gz"
         SYSTEM
 )
 
