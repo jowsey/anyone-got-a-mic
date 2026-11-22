@@ -39,11 +39,11 @@ int main(const int argc, char* argv[])
 
     const auto batchSizeOpt = app.add_option("-b,--batch-size", "number of environments per worker")->default_val(128);
     const auto threadCountOpt = app.add_option("-t,--threads", "number of worker threads (or 'auto')")
-                                    ->transform([hardwareThreads](const std::string& str) {
-                                        return str == "auto" ? std::to_string(hardwareThreads / 2) : str;
-                                    })
-                                    ->check(CLI::Range(1, 8192))
-                                    ->default_val("auto");
+                                   ->transform([hardwareThreads](const std::string& str) {
+                                       return str == "auto" ? std::to_string(hardwareThreads / 2) : str;
+                                   })
+                                   ->check(CLI::Range(1, 8192))
+                                   ->default_val("auto");
     const auto tickRateOpt = app.add_option("--tick-rate", "simulation tick rate (Hz)")->default_val(64);
     const auto headlessFlag = app.add_flag("--headless", "run without rendering");
 
@@ -63,12 +63,19 @@ int main(const int argc, char* argv[])
         const float fixedDeltaTime = 1.0f / tickRateHz;
         auto batch = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
 
+        std::unique_ptr<pulsar::Renderer::RenderWindow> window;
+
+        std::jthread orchestratorThread;
+        std::jthread renderThread;
+
+        std::atomic globalQuit{false};
+
         if (!headless)
         {
+            window = std::make_unique<pulsar::Renderer::RenderWindow>(batch.getBatch(0), 0);
+            const auto cubeIndex = window->RegisterMesh(pulsar::Renderer::Primitives::CubeMesh);
 
-            auto window = pulsar::Renderer::RenderWindow(batch.getBatch(0), 0);
-            const auto cubeIndex = window.RegisterMesh(pulsar::Renderer::Primitives::CubeMesh);
-
+            // todo decouple from renderer (i.e. global mesh cache + for physics)
             auto& firstBatch = batch.getBatch(0);
 
             std::mt19937 rng(std::random_device{}());
@@ -79,44 +86,53 @@ int main(const int argc, char* argv[])
                 auto randPosition = glm::vec3{dist(rng), 0, dist(rng)};
 
                 (void)firstBatch.sharedEcs.entity(flecs::Parent{firstBatch.envRoots[0]}, std::format("Cube {}", i).c_str())
-                    .set<pulsar::Components::EnvironmentId>({.envId = 0})
-                    .set<pulsar::Components::Transform>({.localPosition = randPosition})
-                    .set<pulsar::Components::MeshRenderer>(cubeIndex);
+                                .set<pulsar::Components::EnvironmentId>({.envId = 0})
+                                .set<pulsar::Components::Transform>({.localPosition = randPosition})
+                                .set<pulsar::Components::MeshRenderer>(cubeIndex);
             }
 
-            auto renderThread = std::jthread([&] {
-                while (!window.getIsQuitting())
+            renderThread = std::jthread([&](const std::stop_token& st) {
+                while (!window->getIsQuitting() && !st.stop_requested())
                 {
-                    window.render();
+                    window->render();
                 }
             });
+        }
 
-            constexpr std::uint64_t PollIntervalNS = 5'000'000; // 5ms
-            std::uint64_t lastPollNS = 0;
-
-            while (!window.getIsQuitting())
+        orchestratorThread = std::jthread([&](const std::stop_token& st) {
+            while (!st.stop_requested())
             {
                 batch.stepAll();
+            }
+        });
 
-                auto now = SDL_GetTicksNS();
-                if (now - lastPollNS >= PollIntervalNS)
+        // todo pull from vsync
+        constexpr std::uint64_t windowPollIntervalNs = 10'000'000; // 10ms
+        std::uint64_t lastPollNS = 0;
+
+        while (!globalQuit && !(window && window->getIsQuitting()))
+        {
+            if (window)
+            {
+                const auto now = SDL_GetTicksNS();
+                if (now - lastPollNS >= windowPollIntervalNs)
                 {
                     // todo check whether this is meaningful enough relative to batch work to bother throttling
-                    window.pollEvents();
+                    window->pollEvents();
                     lastPollNS = now;
                 }
             }
-
-            if (renderThread.joinable()) renderThread.join();
-            window.dispose();
         }
-        else
+
+        renderThread.request_stop();
+        orchestratorThread.request_stop();
+
+        if (renderThread.joinable()) renderThread.join();
+        if (orchestratorThread.joinable()) orchestratorThread.join();
+
+        if (window)
         {
-            while (true)
-            {
-                // todo consolidate
-                batch.stepAll();
-            }
+            window->dispose();
         }
     });
 
