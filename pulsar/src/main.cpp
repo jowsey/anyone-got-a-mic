@@ -15,6 +15,7 @@
 #include "spdlog/spdlog.h"
 #include "util/Fmt.h"
 
+#include <latch>
 #include <print>
 #include <random>
 #include <ranges>
@@ -65,10 +66,7 @@ int main(const int argc, char* argv[])
 
         std::unique_ptr<pulsar::Renderer::RenderWindow> window;
 
-        std::jthread orchestratorThread;
-        std::jthread renderThread;
-
-        std::atomic globalQuit{false};
+        std::latch finished{1};
 
         if (!headless)
         {
@@ -90,44 +88,41 @@ int main(const int argc, char* argv[])
                                 .set<pulsar::Components::Transform>({.localPosition = randPosition})
                                 .set<pulsar::Components::MeshRenderer>(cubeIndex);
             }
-
-            renderThread = std::jthread([&](const std::stop_token& st) {
-                while (!window->getIsQuitting() && !st.stop_requested())
-                {
-                    window->render();
-                }
-            });
         }
 
-        orchestratorThread = std::jthread([&](const std::stop_token& st) {
+        auto orchestratorThread = std::jthread([&](const std::stop_token& st) {
             while (!st.stop_requested())
             {
                 batch.stepAll();
             }
+
+            // todo give batch a way to say we're done?
+            finished.count_down();
         });
 
-        // todo pull from vsync
-        constexpr std::uint64_t windowPollIntervalNs = 10'000'000; // 10ms
-        std::uint64_t lastPollNS = 0;
-
-        while (!globalQuit && !(window && window->getIsQuitting()))
+        auto lastTime = SDL_GetTicksNS();
+        while (window && !window->getIsQuitting())
         {
-            if (window)
-            {
-                const auto now = SDL_GetTicksNS();
-                if (now - lastPollNS >= windowPollIntervalNs)
-                {
-                    // todo check whether this is meaningful enough relative to batch work to bother throttling
-                    window->pollEvents();
-                    lastPollNS = now;
-                }
-            }
+            const auto now = SDL_GetTicksNS();
+            const auto deltaTime = static_cast<float>(now - lastTime) / 1'000'000'000.0f;
+
+            window->pollEvents();
+            window->render(deltaTime);
+
+            lastTime = now;
         }
 
-        renderThread.request_stop();
-        orchestratorThread.request_stop();
+        if (headless)
+        {
+            // wait for orchestrator to finish
+            finished.wait();
+        }
+        else
+        {
+            // window closed
+            orchestratorThread.request_stop();
+        }
 
-        if (renderThread.joinable()) renderThread.join();
         if (orchestratorThread.joinable()) orchestratorThread.join();
 
         if (window)

@@ -270,8 +270,51 @@ void pulsar::Renderer::RenderWindow::pollEvents()
     }
 }
 
-void pulsar::Renderer::RenderWindow::render()
+void pulsar::Renderer::RenderWindow::render(float deltaTime)
 {
+    // Camera control
+    constexpr float moveSpeed = 2.5f;
+
+    float dx, dy;
+    SDL_MouseButtonFlags mouseButtons = SDL_GetRelativeMouseState(&dx, &dy);
+
+    if (mouseButtons & SDL_BUTTON_RMASK)
+    {
+        if (!SDL_GetWindowRelativeMouseMode(window))
+        {
+            SDL_SetWindowRelativeMouseMode(window, true);
+        }
+
+        // Rotate
+        constexpr float sensitivity = 0.75f;
+        float yaw = dx * sensitivity * deltaTime;
+        float pitch = dy * sensitivity * deltaTime;
+
+        glm::quat yawQuat = glm::angleAxis(yaw, glm::vec3(0, 1, 0));
+        glm::quat pitchQuat = glm::angleAxis(pitch, glm::vec3(1, 0, 0));
+        cameraState.rotation = yawQuat * cameraState.rotation * pitchQuat;
+
+        // Pan
+        auto kbState = SDL_GetKeyboardState(nullptr);
+        glm::vec3 moveDir{0};
+        if (kbState[SDL_SCANCODE_W]) moveDir += cameraState.rotation * glm::vec3(0, 0, 1);
+        if (kbState[SDL_SCANCODE_S]) moveDir += cameraState.rotation * glm::vec3(0, 0, -1);
+        if (kbState[SDL_SCANCODE_A]) moveDir += cameraState.rotation * glm::vec3(-1, 0, 0);
+        if (kbState[SDL_SCANCODE_D]) moveDir += cameraState.rotation * glm::vec3(1, 0, 0);
+        if (kbState[SDL_SCANCODE_Q]) moveDir += cameraState.rotation * glm::vec3(0, -1, 0);
+        if (kbState[SDL_SCANCODE_E]) moveDir += cameraState.rotation * glm::vec3(0, 1, 0);
+
+        if (moveDir != glm::vec3(0.0f))
+        {
+            float multiplier = kbState[SDL_SCANCODE_LSHIFT] ? 3 : 1;
+            cameraState.position += glm::normalize(moveDir) * moveSpeed * multiplier * deltaTime;
+        }
+    }
+    else if (SDL_GetWindowRelativeMouseMode(window))
+    {
+        SDL_SetWindowRelativeMouseMode(window, false);
+    }
+
     SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
     SDL_GPUTexture* swapchainTexture;
 
@@ -340,7 +383,7 @@ void pulsar::Renderer::RenderWindow::render()
 
         ImGui::Render();
 
-        constexpr auto view = glm::mat4(1.0f);
+        const auto view = glm::mat4_cast(glm::conjugate(cameraState.rotation)) * glm::translate(glm::mat4(1.0f), -cameraState.position);
         const auto proj = glm::perspective(glm::radians(90.0f), windowWidth / static_cast<float>(windowHeight), 0.1f, 100.0f);
 
         sceneConstants = {

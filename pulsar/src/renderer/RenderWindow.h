@@ -4,9 +4,7 @@
 #include "SDL3/SDL_gpu.h"
 #include "SDL3/SDL_video.h"
 #include "glm/fwd.hpp"
-#include "glm/mat4x4.hpp"
-#include "glm/vec3.hpp"
-#include "glm/vec4.hpp"
+#include "glm/detail/type_quat.hpp"
 
 #include <filesystem>
 
@@ -62,6 +60,12 @@ namespace pulsar::Renderer
         std::vector<SDL_GPUIndexedIndirectDrawCommand> drawCommands{};
         std::vector<ObjectData> objectData{};
 
+        struct
+        {
+            glm::vec3 position{0};
+            glm::quat rotation{1, 0, 0, 0};
+        } cameraState;
+
         std::size_t envIndex;
         std::atomic<bool> isQuitting;
 
@@ -83,7 +87,7 @@ namespace pulsar::Renderer
         explicit RenderWindow(const ThreadBatch& batch, std::size_t envIndex);
 
         void pollEvents();
-        void render();
+        void render(float deltaTime);
         void dispose();
 
         [[nodiscard]] std::uint32_t RegisterMesh(const MeshData& data);
