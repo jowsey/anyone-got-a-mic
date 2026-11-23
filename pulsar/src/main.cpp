@@ -26,6 +26,10 @@ int main(const int argc, char* argv[])
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
+#ifndef NDEBUG
+    spdlog::set_level(spdlog::level::debug);
+#endif
+
     std::locale::global(std::locale(""));
 
     CLI::App app{"high-performance reinforcement learning environment"};
