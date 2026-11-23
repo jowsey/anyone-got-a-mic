@@ -166,7 +166,7 @@ flecs::entity pulsar::BatchedEnvironment::createEnvObject(const std::string& nam
 {
     const auto envId = envRoot.get<Components::EnvironmentId>().envId;
 
-    spdlog::debug("Creating env object '{}' in env {} (root {})", name, envId, envRoot.id());
+    spdlog::debug("Creating env object '{}' in env {}", name, envId);
 
     return world.entity(flecs::Parent{envRoot}, name.c_str())
         .set<Components::EnvironmentId>({.envId = envId})

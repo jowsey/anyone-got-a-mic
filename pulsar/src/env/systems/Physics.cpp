@@ -16,7 +16,7 @@ void pulsar::Systems::Physics::Register(const flecs::world& world, const std::ve
         .filter() // ignore rb changes
         .event(flecs::OnSet)
         .each([](flecs::entity /*e*/, const Components::RigidBody& body, Components::BoxCollider& box) {
-            spdlog::debug("Creating box collider for body {}", body.bodyId.index1);
+            // spdlog::debug("Creating box collider on entity {}", e.name().c_str());
 
             b3ShapeDef shapeDef = b3DefaultShapeDef();
             shapeDef.density = 1.0f;
@@ -42,8 +42,8 @@ void pulsar::Systems::Physics::Register(const flecs::world& world, const std::ve
 
     world.observer<const Components::RigidBody>()
         .event(flecs::OnRemove)
-        .each([](const flecs::entity /*e*/, const Components::RigidBody& body) {
-            spdlog::debug("Destroying body {}", body.bodyId.index1);
+        .each([](const flecs::entity e, const Components::RigidBody& body) {
+            spdlog::debug("Destroying rigidbody on entity {}", e.name().c_str());
             b3DestroyBody(body.bodyId);
         });
 
@@ -65,7 +65,7 @@ void pulsar::Systems::Physics::Register(const flecs::world& world, const std::ve
                     // Handle teleport
                     if (transform[i].localPosition != physPos || transform[i].localRotation != physRot)
                     {
-                        spdlog::debug("Body {} teleported by {} units", body[i].bodyId.index1, glm::length(transform[i].localPosition - physPos));
+                        spdlog::debug("Body {} ({}) teleported by {} units", body[i].bodyId.index1, it.entity(i).name().c_str(), glm::length(transform[i].localPosition - physPos));
                         b3Body_SetTransform(
                             body[i].bodyId,
                             Utils::Formats::glmToB3Vec3(transform[i].localPosition),
@@ -91,7 +91,7 @@ void pulsar::Systems::Physics::Register(const flecs::world& world, const std::ve
 
                     if (!entity.is_alive())
                     {
-                        spdlog::warn("Entity {} is in physics but not alive!");
+                        spdlog::warn("Entity {} ({}) is in physics but not alive!", rawId, entity.name().c_str());
                         continue;
                     }
 
