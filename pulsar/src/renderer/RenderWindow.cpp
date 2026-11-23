@@ -253,7 +253,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
 
                             const auto& meshHandle = meshRegistry[meshRenderer[i].gpuHandle.value_or(0)];
                             drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
-                            objectData.emplace_back(envOffset + transform[i].worldMatrix);
+                            objectData.emplace_back(envOffset * transform[i].worldMatrix);
                         }
                     }
                 }
