@@ -237,11 +237,22 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
 
                         for (const auto i : it)
                         {
-                            if (envId[i].envId != this->envIndex) continue; // todo we can almost certainly filter this at an ECS level
+                            if (!showFullGrid && envId[i].envId != this->envIndex) continue;
+
+                            glm::mat4 envOffset{1.0f};
+
+                            if (showFullGrid)
+                            {
+                                constexpr float cellSize = 50;
+                                constexpr std::size_t gridWidth = 11;
+                                const std::size_t row = envId[i].envId / gridWidth;
+                                const std::size_t col = envId[i].envId % gridWidth;
+                                envOffset = glm::translate(glm::mat4(1.0), glm::vec3(col, 0, row) * cellSize);
+                            }
 
                             const auto& meshHandle = meshRegistry[meshRenderer[i].meshIndex];
                             drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
-                            objectData.emplace_back(transform[i].worldMatrix);
+                            objectData.emplace_back(envOffset + transform[i].worldMatrix);
                         }
                     }
                 }
@@ -274,7 +285,7 @@ void pulsar::Renderer::RenderWindow::pollEvents()
 void pulsar::Renderer::RenderWindow::render(float deltaTime)
 {
     // Camera control
-    constexpr float moveSpeed = 2.5f;
+    constexpr float moveSpeed = 5.0f;
 
     float dx, dy;
     SDL_MouseButtonFlags mouseButtons = SDL_GetRelativeMouseState(&dx, &dy);
@@ -307,7 +318,7 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
         if (moveDir != glm::vec3(0.0f))
         {
-            float multiplier = kbState[SDL_SCANCODE_LSHIFT] ? 3 : 1;
+            float multiplier = kbState[SDL_SCANCODE_LSHIFT] ? 5 : 1;
             cameraState.position += glm::normalize(moveDir) * moveSpeed * multiplier * deltaTime;
         }
     }
@@ -384,6 +395,12 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
         ImGui::DragFloat3("Camera Position", &cameraState.position.x, 0.1f);
 
         ImGui::SeparatorText("Environment");
+        ImGui::Checkbox("Show full grid", &showFullGrid);
+
+        if (showFullGrid)
+        {
+            ImGui::BeginDisabled();
+        }
 
         auto numEnvs = threadBatch.envRoots.size();
         if (ImGui::ArrowButton("prevenv", ImGuiDir_Left))
@@ -404,11 +421,16 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
                 envIndex = 0;
         }
 
+        if (showFullGrid)
+        {
+            ImGui::EndDisabled();
+        }
+
         ImGui::End();
         ImGui::Render();
 
         const auto view = glm::mat4_cast(glm::conjugate(cameraState.rotation)) * glm::translate(glm::mat4(1.0f), -cameraState.position);
-        const auto proj = glm::perspective(glm::radians(60.0f), windowWidth / static_cast<float>(windowHeight), 0.1f, 100.0f);
+        const auto proj = glm::perspective(glm::radians(60.0f), windowWidth / static_cast<float>(windowHeight), 0.1f, 1000.0f);
 
         sceneConstants = {
             .viewProj = proj * view

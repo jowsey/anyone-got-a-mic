@@ -3,8 +3,8 @@
 #include "../env/BatchedEnvironment.h"
 #include "SDL3/SDL_gpu.h"
 #include "SDL3/SDL_video.h"
-#include "glm/fwd.hpp"
 #include "glm/detail/type_quat.hpp"
+#include "glm/fwd.hpp"
 
 #include <filesystem>
 
@@ -38,7 +38,7 @@ namespace pulsar::Renderer
         };
 
         static constexpr std::uint32_t VertexBufferSize = 1024 * 256; // 256 KB
-        static constexpr std::uint32_t IndexBufferSize = 1024 * 128; // 128 KB
+        static constexpr std::uint32_t IndexBufferSize = 1024 * 128;  // 128 KB
         static constexpr std::uint32_t MaxDrawnObjects = 1024;
 
         SDL_Window* window{nullptr};
@@ -62,7 +62,7 @@ namespace pulsar::Renderer
 
         struct
         {
-            glm::vec3 position{0};
+            glm::vec3 position{0, 2.5, -10};
             glm::quat rotation{1, 0, 0, 0};
         } cameraState;
 
@@ -76,9 +76,11 @@ namespace pulsar::Renderer
         std::mutex renderMutex;
         std::atomic<bool> isQuitting;
 
+        bool showFullGrid{false};
+
         [[nodiscard]] SDL_GPUShader* LoadShader(std::filesystem::path path, SDL_GPUShaderStage stage, const std::string& entryPoint, uint32_t numUniformBuffers, uint32_t numStorageBuffers) const;
 
-    public:
+      public:
         struct MeshData
         {
             std::vector<Vertex> vertices;
