@@ -1,6 +1,5 @@
 #include "RenderWindow.h"
 
-#include "../env/components/Environment.h"
 #include "../env/components/EnvironmentId.h"
 #include "../env/components/MeshRenderer.h"
 #include "../env/components/Transform.h"
@@ -15,9 +14,14 @@
 #include "imgui_impl_sdlgpu3.h"
 #include "spdlog/spdlog.h"
 
-#include <filesystem>
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "stb_image_resize2.h"
 
-SDL_GPUShader* pulsar::Renderer::RenderWindow::LoadShader(std::filesystem::path path, const SDL_GPUShaderStage stage, const std::string& entryPoint, const std::uint32_t numUniformBuffers, const std::uint32_t numStorageBuffers) const
+#include <algorithm>
+#include <filesystem>
+#include <ranges>
+
+SDL_GPUShader* pulsar::Renderer::RenderWindow::LoadShader(std::filesystem::path path, const SDL_GPUShaderStage stage, const std::string& entryPoint, const std::uint32_t numUniformBuffers, const std::uint32_t numStorageBuffers, const std::uint32_t numSamplers) const
 {
     SDL_GPUShaderFormat supportedFormat = SDL_GetGPUShaderFormats(device);
     SDL_GPUShaderFormat format;
@@ -49,6 +53,7 @@ SDL_GPUShader* pulsar::Renderer::RenderWindow::LoadShader(std::filesystem::path 
         .entrypoint = entryPoint.c_str(),
         .format = format,
         .stage = stage,
+        .num_samplers = numSamplers,
         .num_storage_buffers = numStorageBuffers,
         .num_uniform_buffers = numUniformBuffers
     };
@@ -58,8 +63,8 @@ SDL_GPUShader* pulsar::Renderer::RenderWindow::LoadShader(std::filesystem::path 
     return shader;
 }
 
-pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std::size_t envIndex)
-    : batch(batch), envIndex(envIndex), lastSnapshotTimeNS(SDL_GetTicksNS()), snapshotUpdateHz(60)
+pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std::size_t envIndex)
+    : threadBatch(threadBatch), envIndex(envIndex), lastSnapshotTimeNS(SDL_GetTicksNS()), snapshotUpdateHz(60)
 {
     // Init
     SDL_Init(SDL_INIT_VIDEO);
@@ -147,8 +152,8 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
 #pragma endregion
 
     // Shaders + pipeline
-    SDL_GPUShader* vertShader = LoadShader(distPath / "resources/shaders/lit_vert", SDL_GPU_SHADERSTAGE_VERTEX, "VSMain", 1, 1);
-    SDL_GPUShader* fragShader = LoadShader(distPath / "resources/shaders/lit_frag", SDL_GPU_SHADERSTAGE_FRAGMENT, "PSMain", 0, 0);
+    SDL_GPUShader* vertShader = LoadShader(distPath / "resources/shaders/lit_vert", SDL_GPU_SHADERSTAGE_VERTEX, "VSMain", 1, 1, 0);
+    SDL_GPUShader* fragShader = LoadShader(distPath / "resources/shaders/lit_frag", SDL_GPU_SHADERSTAGE_FRAGMENT, "PSMain", 0, 0, 8);
 
     SDL_GPUColorTargetDescription colorDesc{.format = SDL_GetGPUSwapchainTextureFormat(device, window)};
 
@@ -161,20 +166,26 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
         }
     };
 
-    std::array<SDL_GPUVertexAttribute, 2> vertexAttributes{
-        SDL_GPUVertexAttribute{
-            .location = 0,
-            .buffer_slot = 0,
-            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .offset = offsetof(Vertex, position)
-        },
-        SDL_GPUVertexAttribute{
-            .location = 1,
-            .buffer_slot = 0,
-            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
-            .offset = offsetof(Vertex, colour)
-        }
-    };
+    auto vertexAttributes = std::to_array<SDL_GPUVertexAttribute>(
+        {SDL_GPUVertexAttribute{
+             .location = 0,
+             .buffer_slot = 0,
+             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+             .offset = offsetof(Vertex, position)
+         },
+         SDL_GPUVertexAttribute{
+             .location = 1,
+             .buffer_slot = 0,
+             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+             .offset = offsetof(Vertex, colour)
+         },
+         SDL_GPUVertexAttribute{
+             .location = 2,
+             .buffer_slot = 0,
+             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+             .offset = offsetof(Vertex, uv)
+         }}
+    );
 
     SDL_GPUGraphicsPipelineCreateInfo pipelineCI{
         .vertex_shader = vertShader,
@@ -211,44 +222,102 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
     objectDataBuffer = SDL_CreateGPUBuffer(device, &objectDataBufferCI);
 
     SDL_GPUTransferBufferCreateInfo transferBufferCI{.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = vertexBufferCI.size + indexBufferCI.size + indirectBufferCI.size + objectDataBufferCI.size};
+    spdlog::debug("Transfer buffer size: {:.2f} KB", transferBufferCI.size / 1024.0);
     scratchTransferBuffer = SDL_CreateGPUTransferBuffer(device, &transferBufferCI);
+
+    // Sampler
+    SDL_GPUSamplerCreateInfo samplerCI{
+        .min_filter = SDL_GPU_FILTER_LINEAR,
+        .mag_filter = SDL_GPU_FILTER_LINEAR,
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
+        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .max_anisotropy = 16.0f,
+        .max_lod = FLT_MAX,
+        .enable_anisotropy = true
+    };
+
+    linearSampler = SDL_CreateGPUSampler(device, &samplerCI);
+
+    SDL_GPUTextureCreateInfo dummyTextureArrayCI{
+        .type = SDL_GPU_TEXTURETYPE_2D_ARRAY,
+        .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+        .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        .width = 1,
+        .height = 1,
+        .layer_count_or_depth = 1,
+        .num_levels = 1
+    };
+    dummyTextureArray = SDL_CreateGPUTexture(device, &dummyTextureArrayCI);
 
     // Hook into ECS
     snapshotSystem =
-        batch.sharedEcs.system<const Components::EnvironmentId, const Components::Transform, const Components::MeshRenderer>("SnapshotSystem")
-             .kind(flecs::PostUpdate)
-             .run([this](flecs::iter& it) {
-                 const auto now = SDL_GetTicksNS();
-                 if (now - lastSnapshotTimeNS >= 1'000'000'000 / snapshotUpdateHz)
-                 {
-                     std::lock_guard lock(renderMutex);
+        threadBatch.sharedWorld
+            .system<const Components::EnvironmentId, const Components::Transform, const Components::MeshRenderer>("SnapshotSystem")
+            .kind(flecs::PostUpdate)
+            .run([this](flecs::iter& it) {
+                const auto now = SDL_GetTicksNS();
+                if (now - lastSnapshotTimeNS >= 1'000'000'000 / snapshotUpdateHz)
+                {
+                    std::lock_guard lock(renderMutex);
 
-                     lastSnapshotTimeNS = now;
+                    lastSnapshotTimeNS = now;
 
-                     drawCommands.clear();
-                     objectData.clear();
+                    drawCommands.clear();
+                    objectData.clear();
 
-                     while (it.next())
-                     {
-                         const auto envId = it.field<const Components::EnvironmentId>(0);
-                         const auto transform = it.field<const Components::Transform>(1);
-                         const auto meshRenderer = it.field<const Components::MeshRenderer>(2);
+                    while (it.next())
+                    {
+                        const auto envId = it.field<const Components::EnvironmentId>(0);
+                        const auto transform = it.field<const Components::Transform>(1);
+                        const auto meshRenderer = it.field<const Components::MeshRenderer>(2);
 
-                         for (const auto i : it)
-                         {
-                             if (envId[i].envId != this->envIndex) continue; // todo we can almost certainly filter this at an ECS level
+                        for (const auto i : it)
+                        {
+                            if (!showFullGrid && envId[i].envId != this->envIndex) continue;
+                            if (meshRenderer[i].meshes.empty()) continue;
 
-                             const auto& meshHandle = meshRegistry[meshRenderer[i].meshIndex];
-                             drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, i);
-                             objectData.emplace_back(transform[i].worldMatrix);
-                         }
-                     }
-                 }
-                 else
-                 {
-                     it.fini();
-                 }
-             });
+                            glm::mat4 envOffset{1.0f};
+
+                            if (showFullGrid)
+                            {
+                                constexpr float cellSize = 128;
+                                constexpr std::size_t rowCount = 11;
+                                const std::size_t row = envId[i].envId / rowCount;
+                                const std::size_t col = envId[i].envId % rowCount;
+                                envOffset = glm::translate(glm::mat4(1.0), glm::vec3(col, 0, row) * cellSize);
+                            }
+
+                            for (const auto& handles : meshRenderer[i].meshes)
+                            {
+                                if (handles.mesh == std::nullopt) continue;
+
+                                auto meshHandle = RequestUploadedGPUMesh(handles.mesh.value());
+                                drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
+
+                                Material material{};
+
+                                if (handles.albedo.has_value())
+                                {
+                                    material.hasMapMask |= 1 << 0;
+                                    const auto albedoHandle = RequestUploadedGPUTexture(handles.albedo.value());
+
+                                    // todo this should be essentially guaranteed to exist but maybe harden anyway
+                                    material.albedoTexture = std::distance(textureBuckets.begin(), textureBuckets.find(albedoHandle.bucketRes));
+                                    material.albedoLayer = albedoHandle.index;
+                                }
+
+                                objectData.emplace_back(envOffset * transform[i].worldMatrix, material);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    it.fini();
+                }
+            });
 }
 
 void pulsar::Renderer::RenderWindow::pollEvents()
@@ -273,7 +342,7 @@ void pulsar::Renderer::RenderWindow::pollEvents()
 void pulsar::Renderer::RenderWindow::render(float deltaTime)
 {
     // Camera control
-    constexpr float moveSpeed = 2.5f;
+    constexpr float moveSpeed = 5.0f;
 
     float dx, dy;
     SDL_MouseButtonFlags mouseButtons = SDL_GetRelativeMouseState(&dx, &dy);
@@ -306,7 +375,7 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
         if (moveDir != glm::vec3(0.0f))
         {
-            float multiplier = kbState[SDL_SCANCODE_LSHIFT] ? 3 : 1;
+            float multiplier = kbState[SDL_SCANCODE_LSHIFT] ? 5 : 1;
             cameraState.position += glm::normalize(moveDir) * moveSpeed * multiplier * deltaTime;
         }
     }
@@ -341,6 +410,8 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
     if (windowWidth != lastWindowWidth || windowHeight != lastWindowHeight || !depthTexture)
     {
+        spdlog::trace("Rebuilding depth texture ({}x{})", windowWidth, windowHeight);
+
         lastWindowWidth = windowWidth;
         lastWindowHeight = windowHeight;
 
@@ -360,8 +431,6 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
             .num_levels = 1
         };
         depthTexture = SDL_CreateGPUTexture(device, &depthCI);
-
-        // spdlog::info("Rebuilt depth texture ({}x{})", windowWidth, windowHeight);
     }
 
     {
@@ -383,47 +452,143 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
         ImGui::DragFloat3("Camera Position", &cameraState.position.x, 0.1f);
 
         ImGui::SeparatorText("Environment");
+        ImGui::Checkbox("Show full grid", &showFullGrid);
 
-        auto numEnvs = batch.envRoots.size();
-        if (ImGui::ArrowButton("prevenv", ImGuiDir_Left))
+        if (showFullGrid)
         {
-            if (envIndex > 0) envIndex--;
-            else envIndex = numEnvs - 1;
+            ImGui::BeginDisabled();
         }
 
+        auto numEnvs = threadBatch.envRoots.size();
+        if (ImGui::ArrowButton("prevenv", ImGuiDir_Left))
+        {
+            if (envIndex > 0)
+                envIndex--;
+            else
+                envIndex = numEnvs - 1;
+        }
         ImGui::SameLine();
         ImGui::Text("Environment %zu / %zu", envIndex + 1, numEnvs);
         ImGui::SameLine();
-
         if (ImGui::ArrowButton("nextenv", ImGuiDir_Right))
         {
-            if (envIndex < numEnvs - 1) envIndex++;
-            else envIndex = 0;
+            if (envIndex < numEnvs - 1)
+                envIndex++;
+            else
+                envIndex = 0;
+        }
+
+        if (showFullGrid)
+        {
+            ImGui::EndDisabled();
         }
 
         ImGui::End();
-
         ImGui::Render();
 
+        // Update + upload GPU buffers
         const auto view = glm::mat4_cast(glm::conjugate(cameraState.rotation)) * glm::translate(glm::mat4(1.0f), -cameraState.position);
-        const auto proj = glm::perspective(glm::radians(60.0f), windowWidth / static_cast<float>(windowHeight), 0.1f, 100.0f);
-
+        const auto proj = glm::perspective(glm::radians(60.0f), windowWidth / static_cast<float>(windowHeight), 0.1f, 2500.0f);
         sceneConstants = {
             .viewProj = proj * view
         };
 
-        // Copy buffers
+        // Preprocess upload queue
+        vertexUploadScratch.clear();
+        indexUploadScratch.clear();
+        textureUploadScratch.clear();
+
+        for (auto [hash, type] : queuedGPUUploadHashes)
+        {
+            if (type == GPUUploadType::Mesh)
+            {
+                auto* meshData = BatchedEnvironment::getCachedMesh(hash);
+
+                vertexUploadScratch.insert(vertexUploadScratch.end(), meshData->vertices.begin(), meshData->vertices.end());
+                indexUploadScratch.insert(indexUploadScratch.end(), meshData->indices.begin(), meshData->indices.end());
+            }
+            else if (type == GPUUploadType::Texture)
+            {
+                auto* textureData = BatchedEnvironment::getCachedTexture(hash);
+                const auto& handle = gpuTextureHandles[hash];
+
+                // Initialize new bucket if required
+                if (!textureBuckets[handle.bucketRes].texture)
+                {
+                    spdlog::debug("Creating new texture bucket for size {0}x{0}", handle.bucketRes);
+
+                    SDL_GPUTextureCreateInfo textureCI{
+                        .type = SDL_GPU_TEXTURETYPE_2D_ARRAY,
+                        .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB,
+                        .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+                        .width = handle.bucketRes,
+                        .height = handle.bucketRes,
+                        .layer_count_or_depth = MaxTexturesPerBucket,
+                        .num_levels = static_cast<std::uint32_t>(std::log2(handle.bucketRes) - 1) // stop at 4x4
+                    };
+                    textureBuckets[handle.bucketRes].texture = SDL_CreateGPUTexture(device, &textureCI);
+                }
+
+                // Upload new texture to scratch
+                std::size_t offset = textureUploadScratch.size();
+                textureUploadScratch.resize(offset + (handle.bucketRes * handle.bucketRes * 4));
+
+                if (textureData->width != handle.bucketRes || textureData->height != handle.bucketRes)
+                {
+                    spdlog::trace("Resizing texture {} from {}x{} to {}x{}", hash, textureData->width, textureData->height, handle.bucketRes, handle.bucketRes);
+
+                    stbir_resize_uint8_srgb(
+                        textureData->data.data(),
+                        textureData->width,
+                        textureData->height,
+                        0,
+                        textureUploadScratch.data() + offset,
+                        handle.bucketRes,
+                        handle.bucketRes,
+                        0,
+                        STBIR_RGBA
+                    );
+                }
+                else
+                {
+                    SDL_memcpy(textureUploadScratch.data() + offset, textureData->data.data(), textureData->data.size());
+                }
+
+                textureBuckets[handle.bucketRes].hasChanged = true;
+            }
+        }
+
+        // Uploads + copies
         auto* scratchPtr = static_cast<std::uint8_t*>(SDL_MapGPUTransferBuffer(device, scratchTransferBuffer, true));
+
+        // Upload draw commands and object data
         const std::uint32_t drawCommandsBytes = drawCommands.size() * sizeof(SDL_GPUIndexedIndirectDrawCommand);
         const std::uint32_t objectDataBytes = objectData.size() * sizeof(ObjectData);
+        const std::uint32_t vertexUploadBytes = vertexUploadScratch.size() * sizeof(Vertex);
+        const std::uint32_t indexUploadBytes = indexUploadScratch.size() * sizeof(std::uint32_t);
+        const std::uint32_t textureUploadBytes = textureUploadScratch.size() * sizeof(std::uint8_t);
 
-        // todo we should check if they actually changed
+        // todo we should track if these actually changed (dirty flag?)
         if (drawCommandsBytes > 0)
             SDL_memcpy(scratchPtr, drawCommands.data(), drawCommandsBytes);
         if (objectDataBytes > 0)
             SDL_memcpy(scratchPtr + drawCommandsBytes, objectData.data(), objectDataBytes);
 
+        if (vertexUploadBytes > 0)
+            SDL_memcpy(scratchPtr + drawCommandsBytes + objectDataBytes, vertexUploadScratch.data(), vertexUploadBytes);
+        if (indexUploadBytes > 0)
+            SDL_memcpy(scratchPtr + drawCommandsBytes + objectDataBytes + vertexUploadBytes, indexUploadScratch.data(), indexUploadBytes);
+
+        if (textureUploadBytes > 0)
+            SDL_memcpy(scratchPtr + drawCommandsBytes + objectDataBytes + vertexUploadBytes + indexUploadBytes, textureUploadScratch.data(), textureUploadBytes);
+
         SDL_UnmapGPUTransferBuffer(device, scratchTransferBuffer);
+
+        const std::uint32_t totalBytes = drawCommandsBytes + objectDataBytes + vertexUploadBytes + indexUploadBytes + textureUploadBytes;
+        if (totalBytes > 0)
+        {
+            spdlog::trace("Transferring {} bytes ({:.2f} KB)", totalBytes, totalBytes / 1024.0);
+        }
 
         SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
 
@@ -441,7 +606,87 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
             SDL_UploadToGPUBuffer(copyPass, &objectDataSrc, &objectDataDst, true);
         }
 
+        if (!queuedGPUUploadHashes.empty())
+        {
+            std::size_t numMeshes{0};
+            std::size_t numTextures{0};
+
+            for (auto type : queuedGPUUploadHashes | std::views::values)
+            {
+                if (type == GPUUploadType::Mesh)
+                    numMeshes++;
+                else if (type == GPUUploadType::Texture)
+                    numTextures++;
+            }
+
+            spdlog::debug("Uploading {} meshes, {} textures", numMeshes, numTextures);
+
+            std::uint32_t cumulativeVertexBytes = 0;
+            std::uint32_t cumulativeIndexBytes = 0;
+            std::uint32_t cumulativeTextureBytes = 0;
+
+            for (auto [hash, type] : queuedGPUUploadHashes)
+            {
+                if (type == GPUUploadType::Mesh)
+                {
+                    auto* meshData = BatchedEnvironment::getCachedMesh(hash);
+                    auto bufferHandle = gpuMeshHandles[hash];
+
+                    std::uint32_t numVertices = meshData->vertices.size();
+                    std::uint32_t numIndices = meshData->indices.size();
+
+                    if (numVertices > 0)
+                    {
+                        std::uint32_t byteOffset = bufferHandle.vertexOffset * sizeof(Vertex);
+                        std::uint32_t byteSize = numVertices * sizeof(Vertex);
+
+                        const SDL_GPUTransferBufferLocation vertexSrc{.transfer_buffer = scratchTransferBuffer, .offset = drawCommandsBytes + objectDataBytes + cumulativeVertexBytes};
+                        const SDL_GPUBufferRegion vertexDst{.buffer = vertexBuffer, .offset = byteOffset, .size = byteSize};
+                        SDL_UploadToGPUBuffer(copyPass, &vertexSrc, &vertexDst, false);
+                    }
+
+                    if (numIndices > 0)
+                    {
+                        std::uint32_t byteOffset = bufferHandle.indexOffset * sizeof(std::uint32_t);
+                        std::uint32_t byteSize = numIndices * sizeof(std::uint32_t);
+
+                        const SDL_GPUTransferBufferLocation indexSrc{.transfer_buffer = scratchTransferBuffer, .offset = drawCommandsBytes + objectDataBytes + vertexUploadBytes + cumulativeIndexBytes};
+                        const SDL_GPUBufferRegion indexDst{.buffer = indexBuffer, .offset = byteOffset, .size = byteSize};
+                        SDL_UploadToGPUBuffer(copyPass, &indexSrc, &indexDst, false);
+                    }
+
+                    cumulativeVertexBytes += meshData->vertices.size() * sizeof(Vertex);
+                    cumulativeIndexBytes += meshData->indices.size() * sizeof(std::uint32_t);
+                }
+                else if (type == GPUUploadType::Texture)
+                {
+                    const auto& bufferHandle = gpuTextureHandles[hash];
+
+                    const SDL_GPUTextureTransferInfo textureSrc{
+                        .transfer_buffer = scratchTransferBuffer,
+                        .offset = drawCommandsBytes + objectDataBytes + vertexUploadBytes + indexUploadBytes + cumulativeTextureBytes,
+                    };
+                    const SDL_GPUTextureRegion textureDst{.texture = textureBuckets[bufferHandle.bucketRes].texture, .layer = bufferHandle.index, .x = 0, .y = 0, .w = bufferHandle.bucketRes, .h = bufferHandle.bucketRes, .d = 1};
+                    SDL_UploadToGPUTexture(copyPass, &textureSrc, &textureDst, false);
+
+                    cumulativeTextureBytes += bufferHandle.bucketRes * bufferHandle.bucketRes * 4;
+                }
+            }
+        }
+
+        queuedGPUUploadHashes.clear();
         SDL_EndGPUCopyPass(copyPass);
+
+        // Generate updated mipmaps
+        for (auto [res, bucket] : textureBuckets)
+        {
+            if (bucket.hasChanged)
+            {
+                spdlog::trace("Generating mipmaps for {0}x{0} bucket", res);
+                SDL_GenerateMipmapsForGPUTexture(commandBuffer, bucket.texture);
+                bucket.hasChanged = false;
+            }
+        }
 
         const SDL_GPUColorTargetInfo colourTargetInfo{
             .texture = swapchainTexture,
@@ -468,6 +713,38 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
         SDL_PushGPUVertexUniformData(commandBuffer, 0, &sceneConstants, sizeof(SceneConstants));
         SDL_BindGPUVertexStorageBuffers(renderPass, 0, &objectDataBuffer, 1);
 
+        constexpr std::size_t requiredTextureBuckets = 8;
+        if (textureBuckets.size() > requiredTextureBuckets)
+        {
+            spdlog::warn("Too many texture buckets ({}), can only bind the first {}", textureBuckets.size(), requiredTextureBuckets);
+        }
+
+        std::array<SDL_GPUTextureSamplerBinding, requiredTextureBuckets> samplerBindings{};
+
+        for (std::size_t i = 0; i < requiredTextureBuckets; i++)
+        {
+            if (i < textureBuckets.size())
+            {
+                SDL_GPUTextureSamplerBinding samplerBinding = {
+                    .texture = textureBuckets.values()[i].texture,
+                    .sampler = linearSampler
+                };
+
+                samplerBindings[i] = samplerBinding;
+            }
+            else
+            {
+                SDL_GPUTextureSamplerBinding dummySamplerBinding = {
+                    .texture = dummyTextureArray,
+                    .sampler = linearSampler
+                };
+
+                samplerBindings[i] = dummySamplerBinding;
+            }
+        }
+
+        SDL_BindGPUFragmentSamplers(renderPass, 0, samplerBindings.data(), 8);
+
         SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, indirectBuffer, 0, drawCommands.size());
         SDL_EndGPURenderPass(renderPass);
 
@@ -493,7 +770,7 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
 void pulsar::Renderer::RenderWindow::dispose()
 {
-    snapshotSystem.destruct();
+    if (snapshotSystem.is_alive()) snapshotSystem.destruct();
 
     SDL_WaitForGPUIdle(device);
 
@@ -508,6 +785,13 @@ void pulsar::Renderer::RenderWindow::dispose()
     SDL_ReleaseGPUBuffer(device, indirectBuffer);
     SDL_ReleaseGPUBuffer(device, objectDataBuffer);
     SDL_ReleaseGPUTransferBuffer(device, scratchTransferBuffer);
+    SDL_ReleaseGPUSampler(device, linearSampler);
+    SDL_ReleaseGPUTexture(device, dummyTextureArray);
+
+    for (const auto& bucket : textureBuckets | std::views::values)
+    {
+        SDL_ReleaseGPUTexture(device, bucket.texture);
+    }
 
     SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
     SDL_ReleaseWindowFromGPUDevice(device, window);
@@ -517,37 +801,62 @@ void pulsar::Renderer::RenderWindow::dispose()
     SDL_Quit();
 }
 
-std::uint32_t pulsar::Renderer::RenderWindow::RegisterMesh(const MeshData& data)
+const pulsar::Renderer::GPUMeshHandle& pulsar::Renderer::RenderWindow::RequestUploadedGPUMesh(const std::size_t& hash)
 {
-    std::uint32_t vertexOffset = meshRegistry.empty() ? 0 : meshRegistry.back().vertexOffset + meshRegistry.back().vertexCount;
-    std::uint32_t indexOffset = meshRegistry.empty() ? 0 : meshRegistry.back().indexOffset + meshRegistry.back().indexCount;
+    if (gpuMeshHandles.contains(hash))
+    {
+        return gpuMeshHandles[hash];
+    }
 
-    meshRegistry.emplace_back(vertexOffset, data.vertices.size(), indexOffset, data.indices.size());
+    const auto meshData = BatchedEnvironment::getCachedMesh(hash);
 
-    const auto scratchPtr = static_cast<std::uint8_t*>(SDL_MapGPUTransferBuffer(device, scratchTransferBuffer, true));
-    const std::uint32_t vertexBytes = data.vertices.size() * sizeof(Vertex);
-    const std::uint32_t indexBytes = data.indices.size() * sizeof(std::uint32_t);
+    const auto vertexOffset = nextVertexBufferOffset;
+    const auto indexOffset = nextIndexBufferOffset;
 
-    SDL_memcpy(scratchPtr, data.vertices.data(), vertexBytes);
-    SDL_memcpy(scratchPtr + vertexBytes, data.indices.data(), indexBytes);
+    const std::uint32_t numVertices = meshData->vertices.size();
+    const std::uint32_t numIndices = meshData->indices.size();
 
-    SDL_UnmapGPUTransferBuffer(device, scratchTransferBuffer);
+    const auto data = GPUMeshHandle{
+        .vertexOffset = vertexOffset,
+        .vertexCount = numVertices,
+        .indexOffset = indexOffset,
+        .indexCount = numIndices
+    };
 
-    SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
-    SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
+    nextVertexBufferOffset += numVertices;
+    nextIndexBufferOffset += numIndices;
 
-    const SDL_GPUTransferBufferLocation vertexSrc{.transfer_buffer = scratchTransferBuffer, .offset = 0};
-    const SDL_GPUBufferRegion vertexDst{.buffer = vertexBuffer, .offset = static_cast<std::uint32_t>(vertexOffset * sizeof(Vertex)), .size = vertexBytes};
-    SDL_UploadToGPUBuffer(copyPass, &vertexSrc, &vertexDst, false);
+    gpuMeshHandles[hash] = data;
+    queuedGPUUploadHashes.emplace_back(hash, GPUUploadType::Mesh);
 
-    const SDL_GPUTransferBufferLocation indexSrc{.transfer_buffer = scratchTransferBuffer, .offset = vertexBytes};
-    const SDL_GPUBufferRegion indexDst{.buffer = indexBuffer, .offset = static_cast<std::uint32_t>(indexOffset * sizeof(std::uint32_t)), .size = indexBytes};
-    SDL_UploadToGPUBuffer(copyPass, &indexSrc, &indexDst, false);
+    return gpuMeshHandles[hash];
+}
 
-    SDL_EndGPUCopyPass(copyPass);
-    SDL_SubmitGPUCommandBuffer(commandBuffer);
+const pulsar::Renderer::GPUTextureHandle& pulsar::Renderer::RenderWindow::RequestUploadedGPUTexture(const std::size_t& hash)
+{
+    if (gpuTextureHandles.contains(hash))
+    {
+        return gpuTextureHandles[hash];
+    }
 
-    return meshRegistry.size() - 1;
+    const auto textureData = BatchedEnvironment::getCachedTexture(hash);
+    const std::uint32_t res = std::bit_ceil(std::max(textureData->width, textureData->height));
+
+    if (!textureBuckets.contains(res))
+    {
+        textureBuckets[res] = {};
+    }
+
+    // todo this feels massively over-engineered, simplify
+    const auto data = GPUTextureHandle{
+        .bucketRes = res,
+        .index = textureBuckets[res].size++
+    };
+
+    gpuTextureHandles[hash] = data;
+    queuedGPUUploadHashes.emplace_back(hash, GPUUploadType::Texture);
+
+    return gpuTextureHandles[hash];
 }
 
 bool pulsar::Renderer::RenderWindow::getIsQuitting() const

@@ -1,10 +1,15 @@
 #pragma once
-#include <cstdint>
 
 namespace pulsar::Components
 {
+    struct MeshHandleSet
+    {
+        std::optional<std::size_t> mesh;
+        std::optional<std::size_t> albedo;
+    };
+
     struct MeshRenderer
     {
-        std::uint32_t meshIndex;
+        std::vector<MeshHandleSet> meshes{};
     };
 }

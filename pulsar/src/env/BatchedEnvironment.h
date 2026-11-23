@@ -2,11 +2,16 @@
 #include <thread>
 #include <vector>
 
+#include "../renderer/MeshData.h"
+#include "../renderer/TextureData.h"
 #include "box3d/id.h"
 #include "flecs.h"
 #include "flecs/addons/cpp/world.hpp"
 
 #include <barrier>
+#include <filesystem>
+#include <optional>
+#include <unordered_map>
 
 namespace pulsar
 {
@@ -17,7 +22,7 @@ namespace pulsar
 
     struct ThreadBatch
     {
-        flecs::world sharedEcs;
+        flecs::world sharedWorld;
         std::vector<flecs::entity> envRoots;
         std::vector<b3WorldId> b3WorldIds;
         std::vector<std::vector<AgentObservation>> agentObservations;
@@ -28,18 +33,28 @@ namespace pulsar
     class BatchedEnvironment
     {
         std::string name;
-        std::vector<ThreadBatch> batches;
+        std::vector<ThreadBatch> threadBatches;
 
         std::barrier<> jobsAvailableBarrier;
         std::barrier<> workDoneBarrier;
 
+        inline static std::unordered_map<std::size_t, Renderer::MeshData> meshCache;
+        inline static std::unordered_map<std::size_t, Renderer::TextureData> textureCache;
+
       public:
         explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize, std::uint32_t numThreads, float fixedDeltaTime);
-
         ~BatchedEnvironment();
 
         void stepAll();
 
-        [[nodiscard]] const ThreadBatch& getBatch(std::size_t index) const;
+        [[nodiscard]] const std::vector<ThreadBatch>& getThreadBatches() const;
+        [[nodiscard]] const ThreadBatch& getThreadBatch(std::size_t index) const;
+
+        static flecs::entity createWorldObject(const std::string& name, const flecs::entity& parent);
+        static flecs::entity createEnvObject(const std::string& name, const flecs::entity& parent);
+        static std::optional<flecs::entity> buildPrefabFromAsset(const std::filesystem::path& path, const flecs::world& world);
+
+        static const Renderer::TextureData* getCachedTexture(std::size_t hash);
+        static const Renderer::MeshData* getCachedMesh(std::size_t hash);
     };
 }

@@ -13,6 +13,7 @@ add_executable(pulsar
         src/main.cpp
         src/env/BatchedEnvironment.cpp
         src/env/BatchedEnvironment.h
+        src/env/components/BoxCollider.h
         src/env/components/Environment.h
         src/env/components/EnvironmentId.h
         src/env/components/MeshRenderer.h
@@ -22,13 +23,16 @@ add_executable(pulsar
         src/env/systems/Physics.h
         src/env/systems/Transform.cpp
         src/env/systems/Transform.h
+        src/renderer/MeshData.h
         src/renderer/Primitives.h
         src/renderer/RenderWindow.cpp
         src/renderer/RenderWindow.h
-        src/util/FormatConversion.cpp
-        src/util/FormatConversion.h
         src/util/Fmt.cpp
         src/util/Fmt.h
+        src/util/FormatConversion.cpp
+        src/util/FormatConversion.h
+        src/util/Path.cpp
+        src/util/Path.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")
@@ -135,7 +139,7 @@ target_link_libraries(pulsar PRIVATE flecs::flecs_static)
 # box3d
 FetchContent_Declare(
         box3d
-        URL "https://github.com/erincatto/box3d/archive/31d0e31331a106e175d9b161bb412957ab1c63b1.tar.gz"
+        URL "https://github.com/erincatto/box3d/archive/905a3b5cf4597143f0152bf4e33e5b3ffd9ad5c3.tar.gz"
         SYSTEM
 )
 
@@ -185,6 +189,66 @@ add_library(imgui STATIC
 target_include_directories(imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 target_link_libraries(pulsar PRIVATE imgui)
+
+# Assimp
+FetchContent_Declare(
+        assimp
+        URL "https://github.com/assimp/assimp/archive/refs/tags/v6.0.6.tar.gz"
+        SYSTEM
+)
+
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL_PDB OFF CACHE BOOL "" FORCE)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIP ON CACHE BOOL "" FORCE)
+
+set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+
+set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(assimp)
+
+# assimp vendored zlib redefines fdopen to null causing some
+# nonsense on some apple sdk versions(?) fix if they update to zlib 1.3.1?
+if (APPLE AND TARGET zlibstatic)
+    target_compile_definitions(zlibstatic PRIVATE fdopen=fdopen)
+endif ()
+
+# mitigate stricter transitive includes on llvm 23, remove once assimp updates
+target_compile_options(assimp PRIVATE
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>>:-include ostream>
+)
+
+target_link_libraries(pulsar PRIVATE assimp)
+
+# stb (v2.34)
+FetchContent_Declare(
+        stb
+        URL "https://github.com/nothings/stb/archive/1da9ade1e66195252114f5da497f244704a6c58d.tar.gz"
+        SYSTEM
+)
+
+FetchContent_MakeAvailable(stb)
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
+target_link_libraries(pulsar PRIVATE stb)
+
+# stb_image_resize2 (v2.51)
+FetchContent_Declare(
+        stb_image_resize2
+        URL "https://github.com/nothings/stb_image_resize/archive/a4f303e34a92d1410d510cbe85a1781ce4b8c9fd.tar.gz"
+        SYSTEM
+)
+
+FetchContent_MakeAvailable(stb_image_resize2)
+add_library(stb_image_resize2 INTERFACE)
+target_include_directories(stb_image_resize2 INTERFACE ${stb_image_resize2_SOURCE_DIR})
+target_link_libraries(pulsar PRIVATE stb_image_resize2)
 
 # Shader compilation
 # todo allow headless build

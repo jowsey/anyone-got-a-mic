@@ -12,7 +12,7 @@ namespace pulsar::Components
         glm::mat4 worldMatrix;
 
         bool isLocalStale{true};
-        bool worldChangedThisFrame;
+        bool worldChangedThisFrame{true};
 
         glm::vec3 localPosition{0};
         glm::quat localRotation{glm::identity<glm::quat>()};

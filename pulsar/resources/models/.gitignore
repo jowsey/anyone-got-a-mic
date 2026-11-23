@@ -1,0 +1,2 @@
+# explicitly re-allow conflicting rule for assets
+!*.obj
