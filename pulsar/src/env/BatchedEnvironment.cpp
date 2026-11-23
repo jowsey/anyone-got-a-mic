@@ -72,28 +72,28 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
             const auto b3WorldId = threadBatch.b3WorldIds[envI];
 
             // Create ground floor
-            auto floor = createEnvObject("Floor", threadBatch.sharedEcs, root);
+            auto floor = createEnvObject("EnvFloor" + std::to_string(envI), threadBatch.sharedEcs, root);
             floorBodyDef.userData = reinterpret_cast<void*>(floor.id());
 
             (void)floor
                 .set<Components::Transform>({.localPosition = glm::vec3{0.0f, -0.25f, 0.0f}, .localScale = glm::vec3{10.0f, 0.25f, 10.0f}})
                 .set<Components::RigidBody>({.worldId = b3WorldId, .bodyId = b3CreateBody(b3WorldId, &floorBodyDef)})
-                .set<Components::BoxCollider>({.extents = glm::vec3{10.0f, 0.25f, 10.0f}})
+                .set<Components::BoxCollider>({.extents = glm::vec3{5.0f, 0.125f, 5.0f}})
                 .add<Components::MeshRenderer>();
 
             // Create falling blocks
-            for (std::size_t i = 0; i < 3; ++i)
+            for (std::size_t i = 0; i < 5; ++i)
             {
                 std::mt19937 rng{std::random_device{}()};
                 std::uniform_real_distribution<float> dist(-10.0f, 10.0f);
 
-                auto block = createEnvObject("Block", threadBatch.sharedEcs, root);
+                auto block = createEnvObject("Block" + std::to_string(envI) + "_" + std::to_string(i + 1), threadBatch.sharedEcs, root);
                 blockBodyDef.userData = reinterpret_cast<void*>(block.id());
 
                 (void)block
                     .set<Components::Transform>({.localPosition = glm::vec3{dist(rng), 5.0f, dist(rng)}})
                     .set<Components::RigidBody>({.worldId = b3WorldId, .bodyId = b3CreateBody(b3WorldId, &blockBodyDef)})
-                    .set<Components::BoxCollider>({.extents = glm::vec3{0.25f, 0.25f, 0.25f}})
+                    .set<Components::BoxCollider>({.extents = glm::vec3{0.5f}})
                     .add<Components::MeshRenderer>();
             }
         }
