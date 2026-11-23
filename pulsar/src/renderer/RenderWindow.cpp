@@ -58,8 +58,8 @@ SDL_GPUShader* pulsar::Renderer::RenderWindow::LoadShader(std::filesystem::path 
     return shader;
 }
 
-pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std::size_t envIndex)
-    : batch(batch), envIndex(envIndex), lastSnapshotTimeNS(SDL_GetTicksNS()), snapshotUpdateHz(60)
+pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std::size_t envIndex)
+    : threadBatch(threadBatch), envIndex(envIndex), lastSnapshotTimeNS(SDL_GetTicksNS()), snapshotUpdateHz(60)
 {
     // Init
     SDL_Init(SDL_INIT_VIDEO);
@@ -215,40 +215,41 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& batch, const std
 
     // Hook into ECS
     snapshotSystem =
-        batch.sharedEcs.system<const Components::EnvironmentId, const Components::Transform, const Components::MeshRenderer>("SnapshotSystem")
-             .kind(flecs::PostUpdate)
-             .run([this](flecs::iter& it) {
-                 const auto now = SDL_GetTicksNS();
-                 if (now - lastSnapshotTimeNS >= 1'000'000'000 / snapshotUpdateHz)
-                 {
-                     std::lock_guard lock(renderMutex);
+        threadBatch.sharedEcs
+            .system<const Components::EnvironmentId, const Components::Transform, const Components::MeshRenderer>("SnapshotSystem")
+            .kind(flecs::PostUpdate)
+            .run([this](flecs::iter& it) {
+                const auto now = SDL_GetTicksNS();
+                if (now - lastSnapshotTimeNS >= 1'000'000'000 / snapshotUpdateHz)
+                {
+                    std::lock_guard lock(renderMutex);
 
-                     lastSnapshotTimeNS = now;
+                    lastSnapshotTimeNS = now;
 
-                     drawCommands.clear();
-                     objectData.clear();
+                    drawCommands.clear();
+                    objectData.clear();
 
-                     while (it.next())
-                     {
-                         const auto envId = it.field<const Components::EnvironmentId>(0);
-                         const auto transform = it.field<const Components::Transform>(1);
-                         const auto meshRenderer = it.field<const Components::MeshRenderer>(2);
+                    while (it.next())
+                    {
+                        const auto envId = it.field<const Components::EnvironmentId>(0);
+                        const auto transform = it.field<const Components::Transform>(1);
+                        const auto meshRenderer = it.field<const Components::MeshRenderer>(2);
 
-                         for (const auto i : it)
-                         {
-                             if (envId[i].envId != this->envIndex) continue; // todo we can almost certainly filter this at an ECS level
+                        for (const auto i : it)
+                        {
+                            if (envId[i].envId != this->envIndex) continue; // todo we can almost certainly filter this at an ECS level
 
-                             const auto& meshHandle = meshRegistry[meshRenderer[i].meshIndex];
-                             drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, i);
-                             objectData.emplace_back(transform[i].worldMatrix);
-                         }
-                     }
-                 }
-                 else
-                 {
-                     it.fini();
-                 }
-             });
+                            const auto& meshHandle = meshRegistry[meshRenderer[i].meshIndex];
+                            drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
+                            objectData.emplace_back(transform[i].worldMatrix);
+                        }
+                    }
+                }
+                else
+                {
+                    it.fini();
+                }
+            });
 }
 
 void pulsar::Renderer::RenderWindow::pollEvents()
@@ -384,25 +385,26 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
         ImGui::SeparatorText("Environment");
 
-        auto numEnvs = batch.envRoots.size();
+        auto numEnvs = threadBatch.envRoots.size();
         if (ImGui::ArrowButton("prevenv", ImGuiDir_Left))
         {
-            if (envIndex > 0) envIndex--;
-            else envIndex = numEnvs - 1;
+            if (envIndex > 0)
+                envIndex--;
+            else
+                envIndex = numEnvs - 1;
         }
-
         ImGui::SameLine();
         ImGui::Text("Environment %zu / %zu", envIndex + 1, numEnvs);
         ImGui::SameLine();
-
         if (ImGui::ArrowButton("nextenv", ImGuiDir_Right))
         {
-            if (envIndex < numEnvs - 1) envIndex++;
-            else envIndex = 0;
+            if (envIndex < numEnvs - 1)
+                envIndex++;
+            else
+                envIndex = 0;
         }
 
         ImGui::End();
-
         ImGui::Render();
 
         const auto view = glm::mat4_cast(glm::conjugate(cameraState.rotation)) * glm::translate(glm::mat4(1.0f), -cameraState.position);
@@ -493,7 +495,7 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
 void pulsar::Renderer::RenderWindow::dispose()
 {
-    snapshotSystem.destruct();
+    if (snapshotSystem.is_alive()) snapshotSystem.destruct();
 
     SDL_WaitForGPUIdle(device);
 

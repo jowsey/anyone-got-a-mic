@@ -66,7 +66,7 @@ namespace pulsar::Renderer
             glm::quat rotation{1, 0, 0, 0};
         } cameraState;
 
-        const ThreadBatch& batch;
+        const ThreadBatch& threadBatch;
         std::size_t envIndex;
 
         std::uint64_t lastSnapshotTimeNS;
@@ -85,7 +85,7 @@ namespace pulsar::Renderer
             std::vector<std::uint32_t> indices;
         };
 
-        explicit RenderWindow(const ThreadBatch& batch, std::size_t envIndex);
+        explicit RenderWindow(const ThreadBatch& threadBatch, std::size_t envIndex);
 
         void pollEvents();
         void render(float deltaTime);

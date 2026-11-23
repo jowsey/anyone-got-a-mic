@@ -40,11 +40,11 @@ int main(const int argc, char* argv[])
 
     const auto batchSizeOpt = app.add_option("-b,--batch-size", "number of environments per worker")->default_val(128);
     const auto threadCountOpt = app.add_option("-t,--threads", "number of worker threads (or 'auto')")
-                                   ->transform([hardwareThreads](const std::string& str) {
-                                       return str == "auto" ? std::to_string(hardwareThreads / 2) : str;
-                                   })
-                                   ->check(CLI::Range(1, 8192))
-                                   ->default_val("auto");
+                                    ->transform([hardwareThreads](const std::string& str) {
+                                        return str == "auto" ? std::to_string(hardwareThreads / 2) : str;
+                                    })
+                                    ->check(CLI::Range(1, 8192))
+                                    ->default_val("auto");
     const auto tickRateOpt = app.add_option("--tick-rate", "simulation tick rate (Hz)")->default_val(64);
     const auto headlessFlag = app.add_flag("--headless", "run without rendering");
 
@@ -62,7 +62,7 @@ int main(const int argc, char* argv[])
         const auto headless = headlessFlag->count() > 0;
 
         const float fixedDeltaTime = 1.0f / tickRateHz;
-        auto batch = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
+        auto batchedEnv = pulsar::BatchedEnvironment("default", batchSize, threadCount, fixedDeltaTime);
 
         std::unique_ptr<pulsar::Renderer::RenderWindow> window;
 
@@ -70,30 +70,36 @@ int main(const int argc, char* argv[])
 
         if (!headless)
         {
-            window = std::make_unique<pulsar::Renderer::RenderWindow>(batch.getBatch(0), 0);
+            // todo would be nice to change threadbatch at runtime but requires syncing with running systems
+            window = std::make_unique<pulsar::Renderer::RenderWindow>(batchedEnv.getThreadBatch(0), 0);
             const auto cubeIndex = window->RegisterMesh(pulsar::Renderer::Primitives::CubeMesh);
 
-            // todo decouple from renderer (i.e. global mesh cache + for physics)
-            auto& firstBatch = batch.getBatch(0);
-
-            std::mt19937 rng(std::random_device{}());
-            std::uniform_real_distribution<float> dist(-5.0f, 5.0f);
-
-            for (std::size_t i = 0; i < 5; i++)
+            for (auto& threadBatch : batchedEnv.getThreadBatches())
             {
-                auto randPosition = glm::vec3{dist(rng), 0, dist(rng)};
+                for (auto& envRoot : threadBatch.envRoots)
+                {
+                    auto envId = envRoot.get<pulsar::Components::EnvironmentId>().envId;
 
-                (void)firstBatch.sharedEcs.entity(flecs::Parent{firstBatch.envRoots[0]}, std::format("Cube {}", i).c_str())
-                                .set<pulsar::Components::EnvironmentId>({.envId = 0})
-                                .set<pulsar::Components::Transform>({.localPosition = randPosition})
-                                .set<pulsar::Components::MeshRenderer>(cubeIndex);
+                    std::mt19937 rng(std::random_device{}());
+                    std::uniform_real_distribution<float> dist(-5.0f, 5.0f);
+
+                    for (std::size_t i = 0; i < 5; i++)
+                    {
+                        auto randPosition = glm::vec3{dist(rng), 0, dist(rng)};
+
+                        (void)threadBatch.sharedEcs.entity(flecs::Parent{envRoot}, std::format("Cube {}", i).c_str())
+                            .set<pulsar::Components::EnvironmentId>({.envId = envId})
+                            .set<pulsar::Components::Transform>({.localPosition = randPosition})
+                            .set<pulsar::Components::MeshRenderer>(cubeIndex);
+                    }
+                }
             }
         }
 
         auto orchestratorThread = std::jthread([&](const std::stop_token& st) {
             while (!st.stop_requested())
             {
-                batch.stepAll();
+                batchedEnv.stepAll();
             }
 
             // todo give batch a way to say we're done?

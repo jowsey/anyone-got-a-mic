@@ -23,7 +23,7 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
     spdlog::info("Launching batch '{}' with {} environments across {} thread(s)", batchName, batchSize * numThreads, numThreads);
     assert(batchSize * numThreads <= B3_MAX_WORLDS && "Batch size exceeds max Box3D worlds. Increase B3_MAX_WORLDS in CMakeLists.txt.");
 
-    batches.reserve(numThreads);
+    threadBatches.reserve(numThreads);
 
     b3WorldDef worldDef = b3DefaultWorldDef();
     worldDef.gravity = b3Vec3{.x = 0.0f, .y = -9.81f, .z = 0.0f};
@@ -31,33 +31,33 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
 
     for (std::size_t threadI = 0; threadI < numThreads; ++threadI)
     {
-        auto& batch = batches.emplace_back();
-        batch.envRoots.reserve(batchSize);
-        batch.b3WorldIds.reserve(batchSize);
-        batch.agentObservations.resize(batchSize);
+        auto& threadBatch = threadBatches.emplace_back();
+        threadBatch.envRoots.reserve(batchSize);
+        threadBatch.b3WorldIds.reserve(batchSize);
+        threadBatch.agentObservations.resize(batchSize);
 
         for (std::size_t envI = 0; envI < batchSize; ++envI)
         {
-            batch.agentObservations[envI].reserve(128); // todo formalize number of agents per env
+            threadBatch.agentObservations[envI].reserve(128); // todo formalize number of agents per env
 
             // Create physics world
             const auto b3WorldId = b3CreateWorld(&worldDef);
-            batch.b3WorldIds.push_back(b3WorldId);
+            threadBatch.b3WorldIds.push_back(b3WorldId);
 
             // Create env root
-            const auto root = batch.sharedEcs.entity()
+            const auto root = threadBatch.sharedEcs.entity()
                                   .set<Components::Environment>({b3WorldId})
-                                  .set<Components::EnvironmentId>({threadI * batchSize + envI}); // todo does this need to be unique across batches?
-            batch.envRoots.push_back(root);
+                                  .set<Components::EnvironmentId>({envI});
+            threadBatch.envRoots.push_back(root);
         }
 
         // Transform system
-        Systems::Transform::Register(batch.sharedEcs);
+        Systems::Transform::Register(threadBatch.sharedEcs);
         // Physics system
-        Systems::Physics::Register(batch.sharedEcs, batch.b3WorldIds, fixedDeltaTime);
+        Systems::Physics::Register(threadBatch.sharedEcs, threadBatch.b3WorldIds, fixedDeltaTime);
 
         // Start worker
-        batch.worker = std::jthread([&, threadI, fixedDeltaTime](const std::stop_token& stopToken) {
+        threadBatch.worker = std::jthread([&, threadI, fixedDeltaTime](const std::stop_token& stopToken) {
             spdlog::debug("[Worker {}] Worker started", threadI);
 
             while (true)
@@ -66,7 +66,7 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
 
                 if (stopToken.stop_requested()) break;
 
-                const auto ecsContinue = batch.sharedEcs.progress(fixedDeltaTime);
+                const auto ecsContinue = threadBatch.sharedEcs.progress(fixedDeltaTime);
                 if (!ecsContinue)
                 {
                     spdlog::warn("[Worker {}] ECS has quit?", threadI);
@@ -83,14 +83,14 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
 pulsar::BatchedEnvironment::~BatchedEnvironment()
 {
     // Finish all work
-    for (auto& batch : batches)
+    for (auto& batch : threadBatches)
     {
         batch.worker.request_stop();
     }
 
     jobsAvailableBarrier.arrive_and_wait();
 
-    for (auto& batch : batches)
+    for (auto& batch : threadBatches)
     {
         if (batch.worker.joinable())
         {
@@ -110,7 +110,12 @@ void pulsar::BatchedEnvironment::stepAll()
     workDoneBarrier.arrive_and_wait();
 }
 
-const pulsar::ThreadBatch& pulsar::BatchedEnvironment::getBatch(const std::size_t index) const
+const pulsar::ThreadBatch& pulsar::BatchedEnvironment::getThreadBatch(const std::size_t index) const
 {
-    return batches.at(index);
+    return threadBatches.at(index);
+}
+
+const std::vector<pulsar::ThreadBatch>& pulsar::BatchedEnvironment::getThreadBatches() const
+{
+    return threadBatches;
 }

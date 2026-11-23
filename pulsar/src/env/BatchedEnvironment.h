@@ -28,7 +28,7 @@ namespace pulsar
     class BatchedEnvironment
     {
         std::string name;
-        std::vector<ThreadBatch> batches;
+        std::vector<ThreadBatch> threadBatches;
 
         std::barrier<> jobsAvailableBarrier;
         std::barrier<> workDoneBarrier;
@@ -40,6 +40,7 @@ namespace pulsar
 
         void stepAll();
 
-        [[nodiscard]] const ThreadBatch& getBatch(std::size_t index) const;
+        [[nodiscard]] const std::vector<ThreadBatch>& getThreadBatches() const;
+        [[nodiscard]] const ThreadBatch& getThreadBatch(std::size_t index) const;
     };
 }
