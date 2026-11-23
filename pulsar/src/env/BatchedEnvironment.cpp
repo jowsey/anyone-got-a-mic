@@ -2,8 +2,12 @@
 
 #include "box3d/box3d.h"
 #include "box3d/types.h"
+#include "components/BoxCollider.h"
 #include "components/Environment.h"
 #include "components/EnvironmentId.h"
+#include "components/MeshRenderer.h"
+#include "components/RigidBody.h"
+#include "components/Transform.h"
 #include "flecs.h"
 #include "spdlog/spdlog.h"
 #include "systems/Physics.h"
@@ -28,6 +32,12 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
     b3WorldDef worldDef = b3DefaultWorldDef();
     worldDef.gravity = b3Vec3{.x = 0.0f, .y = -9.81f, .z = 0.0f};
     worldDef.workerCount = 1;
+
+    b3BodyDef floorBodyDef = b3DefaultBodyDef();
+    floorBodyDef.type = b3_staticBody;
+
+    b3BodyDef blockBodyDef = b3DefaultBodyDef();
+    blockBodyDef.type = b3_dynamicBody;
 
     for (std::size_t threadI = 0; threadI < numThreads; ++threadI)
     {
@@ -55,6 +65,38 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
         Systems::Transform::Register(threadBatch.sharedEcs);
         // Physics system
         Systems::Physics::Register(threadBatch.sharedEcs, threadBatch.b3WorldIds, fixedDeltaTime);
+
+        for (std::size_t envI = 0; envI < threadBatch.b3WorldIds.size(); ++envI)
+        {
+            const auto root = threadBatch.envRoots[envI];
+            const auto b3WorldId = threadBatch.b3WorldIds[envI];
+
+            // Create ground floor
+            auto floor = createEnvObject("Floor", threadBatch.sharedEcs, root);
+            floorBodyDef.userData = reinterpret_cast<void*>(floor.id());
+
+            (void)floor
+                .set<Components::Transform>({.localPosition = glm::vec3{0.0f, -0.25f, 0.0f}, .localScale = glm::vec3{10.0f, 0.25f, 10.0f}})
+                .set<Components::RigidBody>({.worldId = b3WorldId, .bodyId = b3CreateBody(b3WorldId, &floorBodyDef)})
+                .set<Components::BoxCollider>({.extents = glm::vec3{10.0f, 0.25f, 10.0f}})
+                .add<Components::MeshRenderer>();
+
+            // Create falling blocks
+            for (std::size_t i = 0; i < 3; ++i)
+            {
+                std::mt19937 rng{std::random_device{}()};
+                std::uniform_real_distribution<float> dist(-10.0f, 10.0f);
+
+                auto block = createEnvObject("Block", threadBatch.sharedEcs, root);
+                blockBodyDef.userData = reinterpret_cast<void*>(block.id());
+
+                (void)block
+                    .set<Components::Transform>({.localPosition = glm::vec3{dist(rng), 5.0f, dist(rng)}})
+                    .set<Components::RigidBody>({.worldId = b3WorldId, .bodyId = b3CreateBody(b3WorldId, &blockBodyDef)})
+                    .set<Components::BoxCollider>({.extents = glm::vec3{0.25f, 0.25f, 0.25f}})
+                    .add<Components::MeshRenderer>();
+            }
+        }
 
         // Start worker
         threadBatch.worker = std::jthread([&, threadI, fixedDeltaTime](const std::stop_token& stopToken) {
@@ -118,4 +160,15 @@ const pulsar::ThreadBatch& pulsar::BatchedEnvironment::getThreadBatch(const std:
 const std::vector<pulsar::ThreadBatch>& pulsar::BatchedEnvironment::getThreadBatches() const
 {
     return threadBatches;
+}
+
+flecs::entity pulsar::BatchedEnvironment::createEnvObject(const std::string& name, const flecs::world& world, const flecs::entity& envRoot)
+{
+    const auto envId = envRoot.get<Components::EnvironmentId>().envId;
+
+    spdlog::debug("Creating env object '{}' in env {} (root {})", name, envId, envRoot.id());
+
+    return world.entity(flecs::Parent{envRoot}, name.c_str())
+        .set<Components::EnvironmentId>({.envId = envId})
+        .add<Components::Transform>();
 }

@@ -35,12 +35,13 @@ namespace pulsar
 
       public:
         explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize, std::uint32_t numThreads, float fixedDeltaTime);
-
         ~BatchedEnvironment();
 
         void stepAll();
 
         [[nodiscard]] const std::vector<ThreadBatch>& getThreadBatches() const;
         [[nodiscard]] const ThreadBatch& getThreadBatch(std::size_t index) const;
+
+        static flecs::entity createEnvObject(const std::string& name, const flecs::world& world, const flecs::entity& envRoot);
     };
 }

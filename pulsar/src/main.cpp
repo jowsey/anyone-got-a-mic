@@ -7,9 +7,6 @@
 #include "CLI/CLI.hpp"
 #include "SDL3/SDL_timer.h"
 #include "env/BatchedEnvironment.h"
-#include "env/components/EnvironmentId.h"
-#include "env/components/MeshRenderer.h"
-#include "env/components/Transform.h"
 #include "renderer/Primitives.h"
 #include "renderer/RenderWindow.h"
 #include "spdlog/spdlog.h"
@@ -76,28 +73,7 @@ int main(const int argc, char* argv[])
         {
             // todo would be nice to change threadbatch at runtime but requires syncing with running systems
             window = std::make_unique<pulsar::Renderer::RenderWindow>(batchedEnv.getThreadBatch(0), 0);
-            const auto cubeIndex = window->RegisterMesh(pulsar::Renderer::Primitives::CubeMesh);
-
-            for (auto& threadBatch : batchedEnv.getThreadBatches())
-            {
-                for (auto& envRoot : threadBatch.envRoots)
-                {
-                    auto envId = envRoot.get<pulsar::Components::EnvironmentId>().envId;
-
-                    std::mt19937 rng(std::random_device{}());
-                    std::uniform_real_distribution<float> dist(-5.0f, 5.0f);
-
-                    for (std::size_t i = 0; i < 5; i++)
-                    {
-                        auto randPosition = glm::vec3{dist(rng), 0, dist(rng)};
-
-                        (void)threadBatch.sharedEcs.entity(flecs::Parent{envRoot}, std::format("Cube {}", i).c_str())
-                            .set<pulsar::Components::EnvironmentId>({.envId = envId})
-                            .set<pulsar::Components::Transform>({.localPosition = randPosition})
-                            .set<pulsar::Components::MeshRenderer>(cubeIndex);
-                    }
-                }
-            }
+            (void)window->RegisterMesh(pulsar::Renderer::Primitives::CubeMesh); // todo hardcoded for use in MeshRenderer
         }
 
         auto orchestratorThread = std::jthread([&](const std::stop_token& st) {

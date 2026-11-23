@@ -238,6 +238,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
                         for (const auto i : it)
                         {
                             if (!showFullGrid && envId[i].envId != this->envIndex) continue;
+                            if (meshRenderer[i].gpuHandle == std::nullopt) continue; // todo handle properly
 
                             glm::mat4 envOffset{1.0f};
 
@@ -250,7 +251,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
                                 envOffset = glm::translate(glm::mat4(1.0), glm::vec3(col, 0, row) * cellSize);
                             }
 
-                            const auto& meshHandle = meshRegistry[meshRenderer[i].meshIndex];
+                            const auto& meshHandle = meshRegistry[meshRenderer[i].gpuHandle.value_or(0)];
                             drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
                             objectData.emplace_back(envOffset + transform[i].worldMatrix);
                         }

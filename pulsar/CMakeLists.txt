@@ -29,6 +29,7 @@ add_executable(pulsar
         src/util/FormatConversion.h
         src/util/Fmt.cpp
         src/util/Fmt.h
+        src/env/components/BoxCollider.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")

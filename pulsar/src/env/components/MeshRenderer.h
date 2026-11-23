@@ -5,6 +5,6 @@ namespace pulsar::Components
 {
     struct MeshRenderer
     {
-        std::uint32_t meshIndex;
+        std::optional<std::uint32_t> gpuHandle{0}; // todo don't hardcode a damn cube
     };
 }
