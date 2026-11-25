@@ -73,7 +73,6 @@ int main(const int argc, char* argv[])
         {
             // todo would be nice to change threadbatch at runtime but requires syncing with running systems
             window = std::make_unique<pulsar::Renderer::RenderWindow>(batchedEnv.getThreadBatch(0), 0);
-            (void)window->RegisterMesh(pulsar::Renderer::Primitives::CubeMesh); // todo hardcoded for use in MeshRenderer
         }
 
         auto orchestratorThread = std::jthread([&](const std::stop_token& st) {

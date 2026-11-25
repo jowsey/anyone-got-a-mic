@@ -13,6 +13,7 @@ add_executable(pulsar
         src/main.cpp
         src/env/BatchedEnvironment.cpp
         src/env/BatchedEnvironment.h
+        src/env/components/BoxCollider.h
         src/env/components/Environment.h
         src/env/components/EnvironmentId.h
         src/env/components/MeshRenderer.h
@@ -22,14 +23,16 @@ add_executable(pulsar
         src/env/systems/Physics.h
         src/env/systems/Transform.cpp
         src/env/systems/Transform.h
+        src/renderer/MeshData.h
         src/renderer/Primitives.h
         src/renderer/RenderWindow.cpp
         src/renderer/RenderWindow.h
-        src/util/FormatConversion.cpp
-        src/util/FormatConversion.h
         src/util/Fmt.cpp
         src/util/Fmt.h
-        src/env/components/BoxCollider.h
+        src/util/FormatConversion.cpp
+        src/util/FormatConversion.h
+        src/util/Path.cpp
+        src/util/Path.h
 )
 
 target_compile_definitions(pulsar PRIVATE PULSAR_VERSION="${PROJECT_VERSION}")
@@ -186,6 +189,42 @@ add_library(imgui STATIC
 target_include_directories(imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 target_link_libraries(pulsar PRIVATE imgui)
+
+# Assimp
+FetchContent_Declare(
+        assimp
+        URL "https://github.com/assimp/assimp/archive/refs/tags/v6.0.6.tar.gz"
+        SYSTEM
+)
+
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL_PDB OFF CACHE BOOL "" FORCE)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIP ON CACHE BOOL "" FORCE)
+
+set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+
+set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(assimp)
+
+# assimp vendored zlib redefines fdopen to null causing some
+# nonsense on some apple sdk versions(?) fix if they update to zlib 1.3.1?
+if (APPLE AND TARGET zlibstatic)
+    target_compile_definitions(zlibstatic PRIVATE fdopen=fdopen)
+endif ()
+
+# mitigate stricter transitive includes on llvm 23, remove once assimp updates
+target_compile_options(assimp PRIVATE
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>>:-include ostream>
+)
+
+target_link_libraries(pulsar PRIVATE assimp)
 
 # Shader compilation
 # todo allow headless build

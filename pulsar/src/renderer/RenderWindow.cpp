@@ -215,7 +215,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
 
     // Hook into ECS
     snapshotSystem =
-        threadBatch.sharedEcs
+        threadBatch.sharedWorld
             .system<const Components::EnvironmentId, const Components::Transform, const Components::MeshRenderer>("SnapshotSystem")
             .kind(flecs::PostUpdate)
             .run([this](flecs::iter& it) {
@@ -238,7 +238,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
                         for (const auto i : it)
                         {
                             if (!showFullGrid && envId[i].envId != this->envIndex) continue;
-                            if (meshRenderer[i].gpuHandle == std::nullopt) continue; // todo handle properly
+                            if (meshRenderer[i].meshes.empty()) continue;
 
                             glm::mat4 envOffset{1.0f};
 
@@ -251,9 +251,14 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
                                 envOffset = glm::translate(glm::mat4(1.0), glm::vec3(col, 0, row) * cellSize);
                             }
 
-                            const auto& meshHandle = meshRegistry[meshRenderer[i].gpuHandle.value_or(0)];
-                            drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
-                            objectData.emplace_back(envOffset * transform[i].worldMatrix);
+                            for (const auto& handleSet : meshRenderer[i].meshes)
+                            {
+                                if (handleSet.mesh == std::nullopt) continue;
+
+                                auto meshHandle = RequestUploadedGPUMesh(handleSet.mesh.value());
+                                drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
+                                objectData.emplace_back(envOffset * transform[i].worldMatrix);
+                            }
                         }
                     }
                 }
@@ -437,16 +442,36 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
             .viewProj = proj * view
         };
 
-        // Copy buffers
+        vertexUploads.clear();
+        indexUploads.clear();
+
+        for (std::size_t hash : queuedGpuMeshUploadHashes)
+        {
+            auto* meshData = BatchedEnvironment::getCachedMesh(hash);
+
+            vertexUploads.insert(vertexUploads.end(), meshData->vertices.begin(), meshData->vertices.end());
+            indexUploads.insert(indexUploads.end(), meshData->indices.begin(), meshData->indices.end());
+        }
+
+        // Upload buffers to GPU
         auto* scratchPtr = static_cast<std::uint8_t*>(SDL_MapGPUTransferBuffer(device, scratchTransferBuffer, true));
+
+        // Upload draw commands and object data
         const std::uint32_t drawCommandsBytes = drawCommands.size() * sizeof(SDL_GPUIndexedIndirectDrawCommand);
         const std::uint32_t objectDataBytes = objectData.size() * sizeof(ObjectData);
+        const std::uint32_t vertexUploadBytes = vertexUploads.size() * sizeof(Vertex);
+        const std::uint32_t indexUploadBytes = indexUploads.size() * sizeof(std::uint32_t);
 
-        // todo we should check if they actually changed
+        // todo we should track if these actually changed (dirty flag?)
         if (drawCommandsBytes > 0)
             SDL_memcpy(scratchPtr, drawCommands.data(), drawCommandsBytes);
         if (objectDataBytes > 0)
             SDL_memcpy(scratchPtr + drawCommandsBytes, objectData.data(), objectDataBytes);
+
+        if (vertexUploadBytes > 0)
+            SDL_memcpy(scratchPtr + drawCommandsBytes + objectDataBytes, vertexUploads.data(), vertexUploadBytes);
+        if (indexUploadBytes > 0)
+            SDL_memcpy(scratchPtr + drawCommandsBytes + objectDataBytes + vertexUploadBytes, indexUploads.data(), indexUploadBytes);
 
         SDL_UnmapGPUTransferBuffer(device, scratchTransferBuffer);
 
@@ -466,7 +491,48 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
             SDL_UploadToGPUBuffer(copyPass, &objectDataSrc, &objectDataDst, true);
         }
 
+        std::uint32_t cumulativeVertexBytes = 0;
+        std::uint32_t cumulativeIndexBytes = 0;
+
+        if (!queuedGpuMeshUploadHashes.empty())
+        {
+            spdlog::debug("Uploading {} new meshes", queuedGpuMeshUploadHashes.size());
+        }
+
+        for (std::size_t hash : queuedGpuMeshUploadHashes)
+        {
+            auto* meshData = BatchedEnvironment::getCachedMesh(hash);
+            auto bufferHandle = gpuMeshHandles[hash];
+
+            std::uint32_t numVertices = meshData->vertices.size();
+            std::uint32_t numIndices = meshData->indices.size();
+
+            if (numVertices > 0)
+            {
+                std::uint32_t byteOffset = bufferHandle.vertexOffset * sizeof(Vertex);
+                std::uint32_t byteSize = numVertices * sizeof(Vertex);
+
+                const SDL_GPUTransferBufferLocation vertexSrc{.transfer_buffer = scratchTransferBuffer, .offset = drawCommandsBytes + objectDataBytes + cumulativeVertexBytes};
+                const SDL_GPUBufferRegion vertexDst{.buffer = vertexBuffer, .offset = byteOffset, .size = byteSize};
+                SDL_UploadToGPUBuffer(copyPass, &vertexSrc, &vertexDst, false);
+            }
+
+            if (numIndices > 0)
+            {
+                std::uint32_t byteOffset = bufferHandle.indexOffset * sizeof(std::uint32_t);
+                std::uint32_t byteSize = numIndices * sizeof(std::uint32_t);
+
+                const SDL_GPUTransferBufferLocation indexSrc{.transfer_buffer = scratchTransferBuffer, .offset = drawCommandsBytes + objectDataBytes + vertexUploadBytes + cumulativeIndexBytes};
+                const SDL_GPUBufferRegion indexDst{.buffer = indexBuffer, .offset = byteOffset, .size = byteSize};
+                SDL_UploadToGPUBuffer(copyPass, &indexSrc, &indexDst, false);
+            }
+
+            cumulativeVertexBytes += meshData->vertices.size() * sizeof(Vertex);
+            cumulativeIndexBytes += meshData->indices.size() * sizeof(std::uint32_t);
+        }
+
         SDL_EndGPUCopyPass(copyPass);
+        queuedGpuMeshUploadHashes.clear();
 
         const SDL_GPUColorTargetInfo colourTargetInfo{
             .texture = swapchainTexture,
@@ -542,37 +608,35 @@ void pulsar::Renderer::RenderWindow::dispose()
     SDL_Quit();
 }
 
-std::uint32_t pulsar::Renderer::RenderWindow::RegisterMesh(const MeshData& data)
+const pulsar::Renderer::RenderWindow::GPUMeshHandle& pulsar::Renderer::RenderWindow::RequestUploadedGPUMesh(const std::size_t& hash)
 {
-    std::uint32_t vertexOffset = meshRegistry.empty() ? 0 : meshRegistry.back().vertexOffset + meshRegistry.back().vertexCount;
-    std::uint32_t indexOffset = meshRegistry.empty() ? 0 : meshRegistry.back().indexOffset + meshRegistry.back().indexCount;
+    if (gpuMeshHandles.contains(hash))
+    {
+        return gpuMeshHandles[hash];
+    }
 
-    meshRegistry.emplace_back(vertexOffset, data.vertices.size(), indexOffset, data.indices.size());
+    const auto meshData = BatchedEnvironment::getCachedMesh(hash);
 
-    const auto scratchPtr = static_cast<std::uint8_t*>(SDL_MapGPUTransferBuffer(device, scratchTransferBuffer, true));
-    const std::uint32_t vertexBytes = data.vertices.size() * sizeof(Vertex);
-    const std::uint32_t indexBytes = data.indices.size() * sizeof(std::uint32_t);
+    const auto vertexOffset = gpuMeshVertexOffset;
+    const auto indexOffset = gpuMeshIndexOffset;
 
-    SDL_memcpy(scratchPtr, data.vertices.data(), vertexBytes);
-    SDL_memcpy(scratchPtr + vertexBytes, data.indices.data(), indexBytes);
+    const std::uint32_t numVertices = meshData->vertices.size();
+    const std::uint32_t numIndices = meshData->indices.size();
 
-    SDL_UnmapGPUTransferBuffer(device, scratchTransferBuffer);
+    const auto data = GPUMeshHandle{
+        .vertexOffset = vertexOffset,
+        .vertexCount = numVertices,
+        .indexOffset = indexOffset,
+        .indexCount = numIndices
+    };
 
-    SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
-    SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
+    gpuMeshVertexOffset += numVertices;
+    gpuMeshIndexOffset += numIndices;
 
-    const SDL_GPUTransferBufferLocation vertexSrc{.transfer_buffer = scratchTransferBuffer, .offset = 0};
-    const SDL_GPUBufferRegion vertexDst{.buffer = vertexBuffer, .offset = static_cast<std::uint32_t>(vertexOffset * sizeof(Vertex)), .size = vertexBytes};
-    SDL_UploadToGPUBuffer(copyPass, &vertexSrc, &vertexDst, false);
+    gpuMeshHandles[hash] = data;
+    queuedGpuMeshUploadHashes.push_back(hash);
 
-    const SDL_GPUTransferBufferLocation indexSrc{.transfer_buffer = scratchTransferBuffer, .offset = vertexBytes};
-    const SDL_GPUBufferRegion indexDst{.buffer = indexBuffer, .offset = static_cast<std::uint32_t>(indexOffset * sizeof(std::uint32_t)), .size = indexBytes};
-    SDL_UploadToGPUBuffer(copyPass, &indexSrc, &indexDst, false);
-
-    SDL_EndGPUCopyPass(copyPass);
-    SDL_SubmitGPUCommandBuffer(commandBuffer);
-
-    return meshRegistry.size() - 1;
+    return gpuMeshHandles[hash];
 }
 
 bool pulsar::Renderer::RenderWindow::getIsQuitting() const

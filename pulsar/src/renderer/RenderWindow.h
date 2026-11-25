@@ -1,23 +1,23 @@
 #pragma once
 
 #include "../env/BatchedEnvironment.h"
+#include "MeshData.h"
 #include "SDL3/SDL_gpu.h"
 #include "SDL3/SDL_video.h"
+#include "flecs.h"
 #include "glm/detail/type_quat.hpp"
 #include "glm/fwd.hpp"
 
+#include <atomic>
 #include <filesystem>
+#include <mutex>
+#include <queue>
 
 namespace pulsar::Renderer
 {
     class RenderWindow
     {
-        struct Vertex
-        {
-            glm::vec3 position;
-            glm::vec4 colour;
-        };
-
+      public:
         struct alignas(16) SceneConstants
         {
             glm::mat4 viewProj;
@@ -28,7 +28,7 @@ namespace pulsar::Renderer
             glm::mat4 modelMatrix;
         };
 
-        struct MeshHandle
+        struct GPUMeshHandle
         {
             std::uint32_t vertexOffset;
             std::uint32_t vertexCount;
@@ -37,10 +37,11 @@ namespace pulsar::Renderer
             std::uint32_t indexCount;
         };
 
-        static constexpr std::uint32_t VertexBufferSize = 1024 * 256; // 256 KB
-        static constexpr std::uint32_t IndexBufferSize = 1024 * 128;  // 128 KB
-        static constexpr std::uint32_t MaxDrawnObjects = 1024;
+        static constexpr std::uint32_t VertexBufferSize = 1024 * 1024 * 8; // 8 MB
+        static constexpr std::uint32_t IndexBufferSize = 1024 * 1024 * 8;  // 8 MB
+        static constexpr std::uint32_t MaxDrawnObjects = 16384;            // todo better way to size this?
 
+      private:
         SDL_Window* window{nullptr};
         SDL_GPUDevice* device{nullptr};
         SDL_GPUGraphicsPipeline* pipeline{nullptr};
@@ -54,11 +55,18 @@ namespace pulsar::Renderer
 
         SDL_GPUTextureFormat depthTextureFormat{SDL_GPU_TEXTUREFORMAT_D16_UNORM};
 
-        std::vector<MeshHandle> meshRegistry{};
-
         SceneConstants sceneConstants{};
         std::vector<SDL_GPUIndexedIndirectDrawCommand> drawCommands{};
         std::vector<ObjectData> objectData{};
+
+        std::vector<Vertex> vertexUploads{};
+        std::vector<std::uint32_t> indexUploads{};
+
+        std::vector<std::size_t> queuedGpuMeshUploadHashes{};
+        std::unordered_map<std::size_t, GPUMeshHandle> gpuMeshHandles{};
+
+        std::uint32_t gpuMeshVertexOffset{0};
+        std::uint32_t gpuMeshIndexOffset{0};
 
         struct
         {
@@ -81,19 +89,13 @@ namespace pulsar::Renderer
         [[nodiscard]] SDL_GPUShader* LoadShader(std::filesystem::path path, SDL_GPUShaderStage stage, const std::string& entryPoint, uint32_t numUniformBuffers, uint32_t numStorageBuffers) const;
 
       public:
-        struct MeshData
-        {
-            std::vector<Vertex> vertices;
-            std::vector<std::uint32_t> indices;
-        };
-
         explicit RenderWindow(const ThreadBatch& threadBatch, std::size_t envIndex);
 
         void pollEvents();
         void render(float deltaTime);
         void dispose();
 
-        [[nodiscard]] std::uint32_t RegisterMesh(const MeshData& data);
+        [[nodiscard]] const GPUMeshHandle& RequestUploadedGPUMesh(const std::size_t& hash);
         [[nodiscard]] bool getIsQuitting() const;
     };
 }
