@@ -244,10 +244,10 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
 
                             if (showFullGrid)
                             {
-                                constexpr float cellSize = 50;
-                                constexpr std::size_t gridWidth = 11;
-                                const std::size_t row = envId[i].envId / gridWidth;
-                                const std::size_t col = envId[i].envId % gridWidth;
+                                constexpr float cellSize = 128;
+                                constexpr std::size_t rowCount = 11;
+                                const std::size_t row = envId[i].envId / rowCount;
+                                const std::size_t col = envId[i].envId % rowCount;
                                 envOffset = glm::translate(glm::mat4(1.0), glm::vec3(col, 0, row) * cellSize);
                             }
 

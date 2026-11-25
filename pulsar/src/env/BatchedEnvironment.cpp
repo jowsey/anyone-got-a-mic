@@ -240,14 +240,10 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
             const auto meshIndex = node->mMeshes[i];
             std::string meshPath = path.generic_string() + "#" + std::to_string(meshIndex);
             std::size_t pathHash = std::hash<std::string>{}(meshPath);
-            if (meshCache.contains(pathHash))
-            {
-                spdlog::debug("({}) Mesh {} found in cache", node->mName.C_Str(), meshIndex);
-            }
-            else
+            if (!meshCache.contains(pathHash))
             {
                 const auto mesh = scene->mMeshes[meshIndex];
-                spdlog::debug("({}) Mesh {}: {} vertices, {} faces", node->mName.C_Str(), meshIndex, mesh->mNumVertices, mesh->mNumFaces);
+                // spdlog::debug("({}) Mesh {}: {} vertices, {} faces", node->mName.C_Str(), meshIndex, mesh->mNumVertices, mesh->mNumFaces);
                 auto data = Renderer::MeshData{
                     .vertices = std::vector<Renderer::Vertex>(mesh->mNumVertices),
                     .indices = std::vector<std::uint32_t>(mesh->mNumFaces * 3)
@@ -274,6 +270,10 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
                 }
 
                 meshCache[pathHash] = std::move(data);
+            }
+            else
+            {
+                // spdlog::debug("({}) Mesh {} found in cache", node->mName.C_Str(), meshIndex);
             }
 
             meshRenderer.meshes.emplace_back(pathHash);
