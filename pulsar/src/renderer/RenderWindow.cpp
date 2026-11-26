@@ -229,9 +229,13 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
     SDL_GPUSamplerCreateInfo samplerCI{
         .min_filter = SDL_GPU_FILTER_LINEAR,
         .mag_filter = SDL_GPU_FILTER_LINEAR,
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
         .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
         .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
         .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .max_anisotropy = 16.0f,
+        .max_lod = FLT_MAX,
+        .enable_anisotropy = true
     };
 
     linearSampler = SDL_CreateGPUSampler(device, &samplerCI);
@@ -406,6 +410,8 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
     if (windowWidth != lastWindowWidth || windowHeight != lastWindowHeight || !depthTexture)
     {
+        spdlog::trace("Rebuilding depth texture ({}x{})", windowWidth, windowHeight);
+
         lastWindowWidth = windowWidth;
         lastWindowHeight = windowHeight;
 
@@ -425,8 +431,6 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
             .num_levels = 1
         };
         depthTexture = SDL_CreateGPUTexture(device, &depthCI);
-
-        // spdlog::info("Rebuilt depth texture ({}x{})", windowWidth, windowHeight);
     }
 
     {
@@ -508,29 +512,30 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
                 auto* textureData = BatchedEnvironment::getCachedTexture(hash);
                 const auto& handle = gpuTextureHandles[hash];
 
-                if (textureBuckets[handle.bucketRes].first == nullptr)
+                // Initialize new bucket if required
+                if (!textureBuckets[handle.bucketRes].texture)
                 {
                     spdlog::debug("Creating new texture bucket for size {0}x{0}", handle.bucketRes);
 
                     SDL_GPUTextureCreateInfo textureCI{
                         .type = SDL_GPU_TEXTURETYPE_2D_ARRAY,
                         .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB,
-                        .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
+                        .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
                         .width = handle.bucketRes,
                         .height = handle.bucketRes,
                         .layer_count_or_depth = MaxTexturesPerBucket,
-                        .num_levels = 1
+                        .num_levels = static_cast<std::uint32_t>(std::log2(handle.bucketRes) - 1) // stop at 4x4
                     };
-                    textureBuckets[handle.bucketRes].first = SDL_CreateGPUTexture(device, &textureCI);
+                    textureBuckets[handle.bucketRes].texture = SDL_CreateGPUTexture(device, &textureCI);
                 }
 
-                // textureUploadScratch.insert(textureUploadScratch.end(), textureData->data.begin(), textureData->data.end());
+                // Upload new texture to scratch
                 std::size_t offset = textureUploadScratch.size();
                 textureUploadScratch.resize(offset + (handle.bucketRes * handle.bucketRes * 4));
 
                 if (textureData->width != handle.bucketRes || textureData->height != handle.bucketRes)
                 {
-                    // spdlog::debug("Resizing texture {} from {}x{} to {}x{}", hash, textureData->width, textureData->height, handle.bucketRes, handle.bucketRes);
+                    spdlog::trace("Resizing texture {} from {}x{} to {}x{}", hash, textureData->width, textureData->height, handle.bucketRes, handle.bucketRes);
 
                     stbir_resize_uint8_srgb(
                         textureData->data.data(),
@@ -548,6 +553,8 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
                 {
                     SDL_memcpy(textureUploadScratch.data() + offset, textureData->data.data(), textureData->data.size());
                 }
+
+                textureBuckets[handle.bucketRes].hasChanged = true;
             }
         }
 
@@ -577,7 +584,7 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
         SDL_UnmapGPUTransferBuffer(device, scratchTransferBuffer);
 
-        std::uint32_t totalBytes = drawCommandsBytes + objectDataBytes + vertexUploadBytes + indexUploadBytes + textureUploadBytes;
+        const std::uint32_t totalBytes = drawCommandsBytes + objectDataBytes + vertexUploadBytes + indexUploadBytes + textureUploadBytes;
         if (totalBytes > 0)
         {
             spdlog::trace("Transferring {} bytes ({:.2f} KB)", totalBytes, totalBytes / 1024.0);
@@ -659,7 +666,7 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
                         .transfer_buffer = scratchTransferBuffer,
                         .offset = drawCommandsBytes + objectDataBytes + vertexUploadBytes + indexUploadBytes + cumulativeTextureBytes,
                     };
-                    const SDL_GPUTextureRegion textureDst{.texture = textureBuckets[bufferHandle.bucketRes].first, .layer = bufferHandle.index, .x = 0, .y = 0, .w = bufferHandle.bucketRes, .h = bufferHandle.bucketRes, .d = 1};
+                    const SDL_GPUTextureRegion textureDst{.texture = textureBuckets[bufferHandle.bucketRes].texture, .layer = bufferHandle.index, .x = 0, .y = 0, .w = bufferHandle.bucketRes, .h = bufferHandle.bucketRes, .d = 1};
                     SDL_UploadToGPUTexture(copyPass, &textureSrc, &textureDst, false);
 
                     cumulativeTextureBytes += bufferHandle.bucketRes * bufferHandle.bucketRes * 4;
@@ -669,6 +676,17 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
         queuedGPUUploadHashes.clear();
         SDL_EndGPUCopyPass(copyPass);
+
+        // Generate updated mipmaps
+        for (auto [res, bucket] : textureBuckets)
+        {
+            if (bucket.hasChanged)
+            {
+                spdlog::trace("Generating mipmaps for {0}x{0} bucket", res);
+                SDL_GenerateMipmapsForGPUTexture(commandBuffer, bucket.texture);
+                bucket.hasChanged = false;
+            }
+        }
 
         const SDL_GPUColorTargetInfo colourTargetInfo{
             .texture = swapchainTexture,
@@ -707,9 +725,8 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
         {
             if (i < textureBuckets.size())
             {
-                const auto& texture = textureBuckets.values()[i].first;
                 SDL_GPUTextureSamplerBinding samplerBinding = {
-                    .texture = texture,
+                    .texture = textureBuckets.values()[i].texture,
                     .sampler = linearSampler
                 };
 
@@ -771,9 +788,9 @@ void pulsar::Renderer::RenderWindow::dispose()
     SDL_ReleaseGPUSampler(device, linearSampler);
     SDL_ReleaseGPUTexture(device, dummyTextureArray);
 
-    for (const auto& [texture, size] : textureBuckets | std::views::values)
+    for (const auto& bucket : textureBuckets | std::views::values)
     {
-        SDL_ReleaseGPUTexture(device, texture);
+        SDL_ReleaseGPUTexture(device, bucket.texture);
     }
 
     SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
@@ -827,13 +844,13 @@ const pulsar::Renderer::GPUTextureHandle& pulsar::Renderer::RenderWindow::Reques
 
     if (!textureBuckets.contains(res))
     {
-        textureBuckets[res] = std::make_pair(nullptr, 0);
+        textureBuckets[res] = {};
     }
 
     // todo this feels massively over-engineered, simplify
     const auto data = GPUTextureHandle{
         .bucketRes = res,
-        .index = textureBuckets[res].second++
+        .index = textureBuckets[res].size++
     };
 
     gpuTextureHandles[hash] = data;

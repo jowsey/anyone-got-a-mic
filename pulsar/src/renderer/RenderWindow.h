@@ -60,6 +60,13 @@ namespace pulsar::Renderer
             Material material;
         };
 
+        struct TextureBucket
+        {
+            SDL_GPUTexture* texture{nullptr};
+            std::uint32_t size{0};
+            bool hasChanged{false};
+        };
+
       public:
         static constexpr std::uint32_t VertexBufferSize = 1024 * 1024 * 8; // 8 MB
         static constexpr std::uint32_t IndexBufferSize = 1024 * 1024 * 8;  // 8 MB
@@ -77,12 +84,11 @@ namespace pulsar::Renderer
         SDL_GPUBuffer* objectDataBuffer{nullptr};
         SDL_GPUTransferBuffer* scratchTransferBuffer{nullptr};
         SDL_GPUTexture* depthTexture{nullptr};
-        SDL_GPUTextureFormat depthTextureFormat{SDL_GPU_TEXTUREFORMAT_D16_UNORM};
+        SDL_GPUTextureFormat depthTextureFormat{SDL_GPU_TEXTUREFORMAT_D32_FLOAT};
 
         SDL_GPUSampler* linearSampler{nullptr};
 
-        // res -> (buffer, size), todo better way of counting this?
-        std::flat_map<std::uint32_t, std::pair<SDL_GPUTexture*, std::uint32_t>> textureBuckets{};
+        std::flat_map<std::uint32_t, TextureBucket> textureBuckets{};
 
         SDL_GPUTexture* dummyTextureArray{nullptr};
 
