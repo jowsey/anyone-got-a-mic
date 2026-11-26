@@ -488,7 +488,7 @@ void pulsar::Renderer::RenderWindow::render(float deltaTime)
 
         // Update + upload GPU buffers
         const auto view = glm::mat4_cast(glm::conjugate(cameraState.rotation)) * glm::translate(glm::mat4(1.0f), -cameraState.position);
-        const auto proj = glm::perspective(glm::radians(60.0f), windowWidth / static_cast<float>(windowHeight), 0.1f, 1000.0f);
+        const auto proj = glm::perspective(glm::radians(60.0f), windowWidth / static_cast<float>(windowHeight), 0.1f, 2500.0f);
         sceneConstants = {
             .viewProj = proj * view
         };
