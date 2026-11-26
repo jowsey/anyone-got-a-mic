@@ -10,36 +10,61 @@
 
 #include <atomic>
 #include <filesystem>
+#include <flat_map>
+#include <map>
 #include <mutex>
 #include <queue>
 
 namespace pulsar::Renderer
 {
+    struct GPUMeshHandle
+    {
+        std::uint32_t vertexOffset;
+        std::uint32_t vertexCount;
+
+        std::uint32_t indexOffset;
+        std::uint32_t indexCount;
+    };
+
+    struct GPUTextureHandle
+    {
+        std::uint32_t bucketRes;
+        std::uint32_t index;
+    };
+
+    enum class GPUUploadType
+    {
+        Mesh,
+        Texture
+    };
+
     class RenderWindow
     {
-      public:
         struct alignas(16) SceneConstants
         {
             glm::mat4 viewProj;
         };
 
+        struct alignas(16) Material
+        {
+            // albedo, -, -, -, -, -, -, -
+            std::uint32_t hasMapMask{0};
+
+            std::uint32_t albedoTexture{0};
+            std::uint32_t albedoLayer{0};
+        };
+
         struct alignas(16) ObjectData
         {
-            glm::mat4 modelMatrix;
+            glm::mat4 modelMatrix{1.0f};
+            Material material;
         };
 
-        struct GPUMeshHandle
-        {
-            std::uint32_t vertexOffset;
-            std::uint32_t vertexCount;
-
-            std::uint32_t indexOffset;
-            std::uint32_t indexCount;
-        };
-
+      public:
         static constexpr std::uint32_t VertexBufferSize = 1024 * 1024 * 8; // 8 MB
         static constexpr std::uint32_t IndexBufferSize = 1024 * 1024 * 8;  // 8 MB
-        static constexpr std::uint32_t MaxDrawnObjects = 16384;            // todo better way to size this?
+        static constexpr std::uint32_t MaxDrawnObjects = 16384;            // todo better way to auto-size these?
+        static constexpr std::uint32_t MaxTexturesPerBucket = 64;
 
       private:
         SDL_Window* window{nullptr};
@@ -52,21 +77,30 @@ namespace pulsar::Renderer
         SDL_GPUBuffer* objectDataBuffer{nullptr};
         SDL_GPUTransferBuffer* scratchTransferBuffer{nullptr};
         SDL_GPUTexture* depthTexture{nullptr};
-
         SDL_GPUTextureFormat depthTextureFormat{SDL_GPU_TEXTUREFORMAT_D16_UNORM};
+
+        SDL_GPUSampler* linearSampler{nullptr};
+
+        // res -> (buffer, size), todo better way of counting this?
+        std::flat_map<std::uint32_t, std::pair<SDL_GPUTexture*, std::uint32_t>> textureBuckets{};
+
+        SDL_GPUTexture* dummyTextureArray{nullptr};
 
         SceneConstants sceneConstants{};
         std::vector<SDL_GPUIndexedIndirectDrawCommand> drawCommands{};
         std::vector<ObjectData> objectData{};
 
-        std::vector<Vertex> vertexUploads{};
-        std::vector<std::uint32_t> indexUploads{};
-
-        std::vector<std::size_t> queuedGpuMeshUploadHashes{};
         std::unordered_map<std::size_t, GPUMeshHandle> gpuMeshHandles{};
+        std::unordered_map<std::size_t, GPUTextureHandle> gpuTextureHandles{};
 
-        std::uint32_t gpuMeshVertexOffset{0};
-        std::uint32_t gpuMeshIndexOffset{0};
+        std::vector<std::pair<std::size_t, GPUUploadType>> queuedGPUUploadHashes{};
+
+        std::vector<Vertex> vertexUploadScratch{};
+        std::vector<std::uint32_t> indexUploadScratch{};
+        std::vector<std::uint8_t> textureUploadScratch{};
+
+        std::uint32_t nextVertexBufferOffset{0};
+        std::uint32_t nextIndexBufferOffset{0};
 
         struct
         {
@@ -86,7 +120,7 @@ namespace pulsar::Renderer
 
         bool showFullGrid{false};
 
-        [[nodiscard]] SDL_GPUShader* LoadShader(std::filesystem::path path, SDL_GPUShaderStage stage, const std::string& entryPoint, uint32_t numUniformBuffers, uint32_t numStorageBuffers) const;
+        [[nodiscard]] SDL_GPUShader* LoadShader(std::filesystem::path path, SDL_GPUShaderStage stage, const std::string& entryPoint, uint32_t numUniformBuffers, uint32_t numStorageBuffers, uint32_t numSamplers) const;
 
       public:
         explicit RenderWindow(const ThreadBatch& threadBatch, std::size_t envIndex);
@@ -96,6 +130,7 @@ namespace pulsar::Renderer
         void dispose();
 
         [[nodiscard]] const GPUMeshHandle& RequestUploadedGPUMesh(const std::size_t& hash);
+        [[nodiscard]] const GPUTextureHandle& RequestUploadedGPUTexture(const std::size_t& hash);
         [[nodiscard]] bool getIsQuitting() const;
     };
 }

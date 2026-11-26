@@ -226,7 +226,7 @@ target_compile_options(assimp PRIVATE
 
 target_link_libraries(pulsar PRIVATE assimp)
 
-# stb
+# stb (v2.34)
 FetchContent_Declare(
         stb
         URL "https://github.com/nothings/stb/archive/1da9ade1e66195252114f5da497f244704a6c58d.tar.gz"
@@ -237,6 +237,18 @@ FetchContent_MakeAvailable(stb)
 add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
 target_link_libraries(pulsar PRIVATE stb)
+
+# stb_image_resize2 (v2.51)
+FetchContent_Declare(
+        stb_image_resize2
+        URL "https://github.com/nothings/stb_image_resize/archive/a4f303e34a92d1410d510cbe85a1781ce4b8c9fd.tar.gz"
+        SYSTEM
+)
+
+FetchContent_MakeAvailable(stb_image_resize2)
+add_library(stb_image_resize2 INTERFACE)
+target_include_directories(stb_image_resize2 INTERFACE ${stb_image_resize2_SOURCE_DIR})
+target_link_libraries(pulsar PRIVATE stb_image_resize2)
 
 # Shader compilation
 # todo allow headless build

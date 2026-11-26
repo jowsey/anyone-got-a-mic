@@ -263,11 +263,13 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
                 {
                     const auto& pos = mesh->mVertices[v];
                     const auto& col = mesh->HasVertexColors(0) ? mesh->mColors[0][v] : aiColor4D{1.0f, 1.0f, 1.0f, 1.0f};
+                    const auto& uv = mesh->HasTextureCoords(0) ? mesh->mTextureCoords[0][v] : aiVector3D{0.0f, 0.0f, 0.0f};
                     // const auto& normal = mesh->mNormals[v];
 
                     geometry.vertices[v] = Renderer::Vertex{
                         .position = glm::vec3{pos.x, pos.y, pos.z},
-                        .colour = glm::vec4{col.r, col.g, col.b, col.a}
+                        .colour = glm::vec4{col.r, col.g, col.b, col.a},
+                        .uv = glm::vec2{uv.x, uv.y}
                     };
                 }
 
@@ -292,7 +294,7 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
             {
                 if (handleSet.*handleMember != std::nullopt)
                 {
-                    spdlog::debug("({}) Mesh {}: Texture of type {} already set, skipping fallback", node->mName.C_Str(), meshIndex, aiTextureTypeToString(type));
+                    // spdlog::debug("({}) Mesh {}: Texture of type {} already set, skipping fallback", node->mName.C_Str(), meshIndex, aiTextureTypeToString(type));
                     continue;
                 }
 
@@ -303,7 +305,7 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
                     continue;
                 }
 
-                spdlog::debug("({}) Mesh {}: Found texture of type {} at {}", node->mName.C_Str(), meshIndex, aiTextureTypeToString(type), texturePath.C_Str());
+                // spdlog::debug("({}) Mesh {}: Found texture of type {} at {}", node->mName.C_Str(), meshIndex, aiTextureTypeToString(type), texturePath.C_Str());
 
                 std::filesystem::path texPath = path.parent_path() / texturePath.C_Str();
                 std::size_t textureHash = std::hash<std::string>{}(texPath.generic_string());
@@ -312,7 +314,7 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
 
                 if (textureCache.contains(textureHash))
                 {
-                    spdlog::debug("({}) Mesh {}: Texture already cached at {}", node->mName.C_Str(), meshIndex, texturePath.C_Str());
+                    // spdlog::debug("({}) Mesh {}: Texture already cached at {}", node->mName.C_Str(), meshIndex, texturePath.C_Str());
                     continue;
                 }
 
@@ -351,8 +353,7 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
     return entity;
 }
 
-const pulsar::Renderer::TextureData*
-pulsar::BatchedEnvironment::getCachedTexture(const std::size_t hash)
+const pulsar::Renderer::TextureData* pulsar::BatchedEnvironment::getCachedTexture(const std::size_t hash)
 {
     return textureCache.contains(hash) ? &textureCache.at(hash) : nullptr;
 }
