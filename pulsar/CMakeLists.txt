@@ -226,6 +226,18 @@ target_compile_options(assimp PRIVATE
 
 target_link_libraries(pulsar PRIVATE assimp)
 
+# stb
+FetchContent_Declare(
+        stb
+        URL "https://github.com/nothings/stb/archive/1da9ade1e66195252114f5da497f244704a6c58d.tar.gz"
+        SYSTEM
+)
+
+FetchContent_MakeAvailable(stb)
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
+target_link_libraries(pulsar PRIVATE stb)
+
 # Shader compilation
 # todo allow headless build
 find_program(SHADERCROSS_EXE shadercross REQUIRED)

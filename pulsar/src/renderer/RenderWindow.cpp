@@ -251,11 +251,11 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
                                 envOffset = glm::translate(glm::mat4(1.0), glm::vec3(col, 0, row) * cellSize);
                             }
 
-                            for (const auto& handleSet : meshRenderer[i].meshes)
+                            for (const auto& handles : meshRenderer[i].meshes)
                             {
-                                if (handleSet.mesh == std::nullopt) continue;
+                                if (handles.mesh == std::nullopt) continue;
 
-                                auto meshHandle = RequestUploadedGPUMesh(handleSet.mesh.value());
+                                auto meshHandle = RequestUploadedGPUMesh(handles.mesh.value());
                                 drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
                                 objectData.emplace_back(envOffset * transform[i].worldMatrix);
                             }

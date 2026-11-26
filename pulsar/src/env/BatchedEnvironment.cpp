@@ -19,6 +19,9 @@
 #include "systems/Physics.h"
 #include "systems/Transform.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #include <barrier>
 #include <filesystem>
 #include <random>
@@ -238,13 +241,20 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
         for (std::uint32_t i = 0; i < node->mNumMeshes; ++i)
         {
             const auto meshIndex = node->mMeshes[i];
-            std::string meshPath = path.generic_string() + "#" + std::to_string(meshIndex);
-            std::size_t pathHash = std::hash<std::string>{}(meshPath);
-            if (!meshCache.contains(pathHash))
+            const auto mesh = scene->mMeshes[meshIndex];
+
+            std::string meshPath = path.generic_string() + ":mesh" + std::to_string(meshIndex);
+            std::size_t meshHash = std::hash<std::string>{}(meshPath);
+
+            Components::MeshHandleSet handleSet{.mesh = meshHash};
+
+            // Add mesh to cache if necessary
+            if (!meshCache.contains(meshHash))
             {
-                const auto mesh = scene->mMeshes[meshIndex];
+                // Geometry
                 // spdlog::debug("({}) Mesh {}: {} vertices, {} faces", node->mName.C_Str(), meshIndex, mesh->mNumVertices, mesh->mNumFaces);
-                auto data = Renderer::MeshData{
+
+                auto geometry = Renderer::MeshData{
                     .vertices = std::vector<Renderer::Vertex>(mesh->mNumVertices),
                     .indices = std::vector<std::uint32_t>(mesh->mNumFaces * 3)
                 };
@@ -255,7 +265,7 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
                     const auto& col = mesh->HasVertexColors(0) ? mesh->mColors[0][v] : aiColor4D{1.0f, 1.0f, 1.0f, 1.0f};
                     // const auto& normal = mesh->mNormals[v];
 
-                    data.vertices[v] = Renderer::Vertex{
+                    geometry.vertices[v] = Renderer::Vertex{
                         .position = glm::vec3{pos.x, pos.y, pos.z},
                         .colour = glm::vec4{col.r, col.g, col.b, col.a}
                     };
@@ -264,19 +274,69 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
                 for (std::uint32_t f = 0; f < mesh->mNumFaces; ++f)
                 {
                     const auto& face = mesh->mFaces[f];
-                    data.indices[f * 3 + 0] = face.mIndices[0];
-                    data.indices[f * 3 + 1] = face.mIndices[1];
-                    data.indices[f * 3 + 2] = face.mIndices[2];
+                    geometry.indices[f * 3 + 0] = face.mIndices[0];
+                    geometry.indices[f * 3 + 1] = face.mIndices[1];
+                    geometry.indices[f * 3 + 2] = face.mIndices[2];
                 }
 
-                meshCache[pathHash] = std::move(data);
-            }
-            else
-            {
-                // spdlog::debug("({}) Mesh {} found in cache", node->mName.C_Str(), meshIndex);
+                meshCache[meshHash] = std::move(geometry);
             }
 
-            meshRenderer.meshes.emplace_back(pathHash);
+            // Materials
+            constexpr auto textureTypes = std::to_array<std::pair<aiTextureType, std::optional<std::size_t> Components::MeshHandleSet::*>>(
+                {{aiTextureType_DIFFUSE, &Components::MeshHandleSet::albedo},
+                 {aiTextureType_BASE_COLOR, &Components::MeshHandleSet::albedo}}
+            );
+
+            for (const auto& [type, handleMember] : textureTypes)
+            {
+                if (handleSet.*handleMember != std::nullopt)
+                {
+                    spdlog::debug("({}) Mesh {}: Texture of type {} already set, skipping fallback", node->mName.C_Str(), meshIndex, aiTextureTypeToString(type));
+                    continue;
+                }
+
+                aiString texturePath;
+                if (scene->mMaterials[mesh->mMaterialIndex]->GetTexture(type, 0, &texturePath) != AI_SUCCESS)
+                {
+                    spdlog::warn("({}) Mesh {}: Failed to get texture of type {}", node->mName.C_Str(), meshIndex, aiTextureTypeToString(type));
+                    continue;
+                }
+
+                spdlog::debug("({}) Mesh {}: Found texture of type {} at {}", node->mName.C_Str(), meshIndex, aiTextureTypeToString(type), texturePath.C_Str());
+
+                std::filesystem::path texPath = path.parent_path() / texturePath.C_Str();
+                std::size_t textureHash = std::hash<std::string>{}(texPath.generic_string());
+
+                handleSet.*handleMember = textureHash;
+
+                if (textureCache.contains(textureHash))
+                {
+                    spdlog::debug("({}) Mesh {}: Texture already cached at {}", node->mName.C_Str(), meshIndex, texturePath.C_Str());
+                    continue;
+                }
+
+                int texWidth;
+                int texHeight;
+                auto pixels = stbi_load(texPath.string().c_str(), &texWidth, &texHeight, nullptr, 4);
+                if (!pixels)
+                {
+                    spdlog::warn("({}) Mesh {}: Failed to load texture at {}", node->mName.C_Str(), meshIndex, texturePath.C_Str());
+                    continue;
+                }
+
+                auto textureData = Renderer::TextureData{
+                    .width = static_cast<std::uint32_t>(texWidth),
+                    .height = static_cast<std::uint32_t>(texHeight),
+                    .data = std::vector(pixels, pixels + (texWidth * texHeight * 4))
+                };
+
+                stbi_image_free(pixels);
+
+                textureCache[textureHash] = std::move(textureData);
+            }
+
+            meshRenderer.meshes.push_back(handleSet);
         }
 
         for (std::uint32_t i = 0; i < node->mNumChildren; ++i)
@@ -291,12 +351,13 @@ std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(co
     return entity;
 }
 
+const pulsar::Renderer::TextureData*
+pulsar::BatchedEnvironment::getCachedTexture(const std::size_t hash)
+{
+    return textureCache.contains(hash) ? &textureCache.at(hash) : nullptr;
+}
+
 const pulsar::Renderer::MeshData* pulsar::BatchedEnvironment::getCachedMesh(const std::size_t hash)
 {
-    if (meshCache.contains(hash))
-    {
-        return &meshCache.at(hash);
-    }
-
-    return nullptr;
+    return meshCache.contains(hash) ? &meshCache.at(hash) : nullptr;
 }

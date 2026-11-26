@@ -3,11 +3,10 @@
 #include <vector>
 
 #include "../renderer/MeshData.h"
+#include "../renderer/TextureData.h"
 #include "box3d/id.h"
 #include "flecs.h"
 #include "flecs/addons/cpp/world.hpp"
-#include "glm/ext/matrix_transform.hpp"
-#include "glm/fwd.hpp"
 
 #include <barrier>
 #include <filesystem>
@@ -40,7 +39,7 @@ namespace pulsar
         std::barrier<> workDoneBarrier;
 
         inline static std::unordered_map<std::size_t, Renderer::MeshData> meshCache;
-        // static std::unordered_map<std::size_t, Renderer::RenderWindow::Texture2D> textureCache; // todo
+        inline static std::unordered_map<std::size_t, Renderer::TextureData> textureCache;
 
       public:
         explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize, std::uint32_t numThreads, float fixedDeltaTime);
@@ -55,6 +54,7 @@ namespace pulsar
         static flecs::entity createEnvObject(const std::string& name, const flecs::entity& parent);
         static std::optional<flecs::entity> buildPrefabFromAsset(const std::filesystem::path& path, const flecs::world& world);
 
+        static const Renderer::TextureData* getCachedTexture(std::size_t hash);
         static const Renderer::MeshData* getCachedMesh(std::size_t hash);
     };
 }
