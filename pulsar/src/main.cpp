@@ -39,7 +39,7 @@ int main(const int argc, char* argv[])
     // `pulsar`
     std::uint32_t hardwareThreads = std::thread::hardware_concurrency();
 
-    const auto batchSizeOpt = app.add_option("-b,--batch-size", "number of environments per worker")->default_val(128);
+    const auto batchSizeOpt = app.add_option("-b,--batch-size", "number of environments per worker")->default_val(64);
     const auto threadCountOpt = app.add_option("-t,--threads", "number of worker threads (or 'auto')")
                                     ->transform([hardwareThreads](const std::string& str) {
                                         return str == "auto" ? std::to_string(hardwareThreads / 2) : str;
@@ -120,8 +120,10 @@ int main(const int argc, char* argv[])
     const auto benchmarkCmd = app.add_subcommand("benchmark", "benchmark batch & thread counts");
     const auto benchmarkMinThreadsOpt = benchmarkCmd->add_option("--min-threads", "minimum thread count (threads)")->default_val(std::min(2u, hardwareThreads));
     const auto benchmarkMaxThreadsOpt = benchmarkCmd->add_option("--max-threads", "maximum thread count (threads)")->default_val(hardwareThreads);
+    const auto benchmarkMinBatchSizeOpt = benchmarkCmd->add_option("--min-batch", "minimum batch size (envs/thread)")->default_val(32);
+    const auto benchmarkMaxBatchSizeOpt = benchmarkCmd->add_option("--max-batch", "maximum batch size (envs/thread)")->default_val(128);
+    const auto benchmarkBatchSizeStepOpt = benchmarkCmd->add_option("--batch-step", "batch size step (envs/thread)")->default_val(32);
     const auto benchmarkThreadStepOpt = benchmarkCmd->add_option("--step", "thread step size (threads)")->default_val(std::min(2u, hardwareThreads));
-    const auto benchmarkBatchSizeOpt = benchmarkCmd->add_option("--batch-size", "number of environments per worker")->default_val(128);
     const auto benchmarkTickRateOpt = benchmarkCmd->add_option("--tick-rate", "simulation tick rate (Hz)")->default_val(64);
     const auto benchmarkDurationOpt = benchmarkCmd->add_option("-d,--duration", "individual benchmark duration (seconds)")->default_val(5);
 
@@ -129,18 +131,20 @@ int main(const int argc, char* argv[])
         const auto minThreads = benchmarkMinThreadsOpt->as<std::uint32_t>();
         const auto maxThreads = benchmarkMaxThreadsOpt->as<std::uint32_t>();
         const auto threadStep = benchmarkThreadStepOpt->as<std::uint32_t>();
-        const auto batchSize = benchmarkBatchSizeOpt->as<std::uint32_t>();
+        const auto minBatchSize = benchmarkMinBatchSizeOpt->as<std::uint32_t>();
+        const auto maxBatchSize = benchmarkMaxBatchSizeOpt->as<std::uint32_t>();
+        const auto batchStep = benchmarkBatchSizeStepOpt->as<std::uint32_t>();
         const auto tickRate = benchmarkTickRateOpt->as<float>();
         const auto duration = benchmarkDurationOpt->as<float>();
 
         const float fixedDeltaTime = 1.0f / static_cast<float>(tickRate);
 
-        // threads -> total ticks
-        std::unordered_map<std::uint32_t, std::uint64_t> results;
+        // threads, batchSize -> totalEnvTicks
+        std::pair<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t> bestResult{{0, 0}, 0};
 
-        const std::uint32_t numBenchmarks = (maxThreads - minThreads) / threadStep + 1;
+        const std::uint32_t numBenchmarks = ((maxThreads - minThreads) / threadStep + 1) * ((maxBatchSize - minBatchSize) / batchStep + 1);
+
         std::string timeString;
-
         const float estTotalSeconds = static_cast<float>(numBenchmarks) * duration;
         if (estTotalSeconds >= 3600) timeString += std::to_string(static_cast<std::uint32_t>(estTotalSeconds / 3600.0f)) + "h";
         if (estTotalSeconds >= 60) timeString += std::to_string(static_cast<std::uint32_t>(estTotalSeconds / 60.0f) % 60) + "m";
@@ -148,40 +152,52 @@ int main(const int argc, char* argv[])
 
         spdlog::info("Benchmarking {}..{} threads ({} runs), est. {}", minThreads, maxThreads, numBenchmarks, timeString);
 
+        std::size_t runI = 0;
         for (std::uint32_t benchThreads = minThreads; benchThreads <= maxThreads; benchThreads += threadStep)
         {
-            auto batch = pulsar::BatchedEnvironment("benchmark", batchSize, benchThreads, fixedDeltaTime);
-
-            std::uint64_t totalEnvTicks = 0;
-            const auto startTime = std::chrono::steady_clock::now();
-
-            while (true)
+            for (std::uint32_t batchSize = minBatchSize; batchSize <= maxBatchSize; batchSize += batchStep)
             {
-                batch.stepAll();
+                runI++;
 
-                totalEnvTicks += batchSize * benchThreads;
+                constexpr std::uint32_t progressBarSize = 16;
+                auto progressBar = std::string(progressBarSize, ' ');
+                const auto progress = static_cast<std::uint32_t>(static_cast<float>(runI) / static_cast<float>(numBenchmarks) * static_cast<float>(progressBarSize));
+                std::fill_n(progressBar.begin(), progress, '=');
 
-                const auto elapsedTime = std::chrono::steady_clock::now() - startTime;
-                if (std::chrono::duration<float>(elapsedTime).count() >= duration)
+                spdlog::info("Benchmarking {} threads with {} envs/thread...   [{}]", benchThreads, batchSize, progressBar);
+                auto batch = pulsar::BatchedEnvironment("benchmark", batchSize, benchThreads, fixedDeltaTime);
+
+                std::uint64_t totalEnvTicks = 0;
+                const auto startTime = std::chrono::steady_clock::now();
+
+                while (true)
                 {
-                    break;
-                }
-            }
+                    batch.stepAll();
 
-            results[benchThreads] = totalEnvTicks;
-            auto prettyTotal = pulsar::Utils::Fmt::prettyPrint(static_cast<double>(totalEnvTicks));
-            auto avgTickRate = static_cast<double>(totalEnvTicks) / duration;
-            auto prettyAvg = pulsar::Utils::Fmt::prettyPrint(avgTickRate);
-            spdlog::info("{} threads: {} ticks in {}s ({}/s, {:L}x realtime)", benchThreads, prettyTotal, duration, prettyAvg, avgTickRate * fixedDeltaTime);
+                    totalEnvTicks += batchSize * benchThreads;
+
+                    const auto elapsedTime = std::chrono::steady_clock::now() - startTime;
+                    if (std::chrono::duration<float>(elapsedTime).count() >= duration)
+                    {
+                        break;
+                    }
+                }
+
+                if (totalEnvTicks > bestResult.second)
+                {
+                    bestResult = {{benchThreads, batchSize}, totalEnvTicks};
+                }
+
+                auto prettyTotal = pulsar::Utils::Fmt::prettyPrint(static_cast<double>(totalEnvTicks));
+                auto avgTickRate = static_cast<double>(totalEnvTicks) / duration;
+                auto prettyAvg = pulsar::Utils::Fmt::prettyPrint(avgTickRate);
+                spdlog::info("{} envs * {} threads: {}/s ({:.2Lf}x realtime)", batchSize, benchThreads, prettyAvg, avgTickRate * fixedDeltaTime);
+            }
         }
 
-        const auto fastest = std::ranges::max_element(results, [](const auto& a, const auto& b) {
-            return a.second < b.second;
-        });
-
-        auto fastestTickRate = static_cast<double>(fastest->second) / duration;
+        auto fastestTickRate = static_cast<double>(bestResult.second) / duration;
         auto prettyBestAvg = pulsar::Utils::Fmt::prettyPrint(fastestTickRate);
-        spdlog::info("Fastest: {} threads ({}/s, {:L}x realtime)", fastest->first, prettyBestAvg, fastestTickRate * fixedDeltaTime);
+        spdlog::info("Fastest: {} envs * {} threads: {}/s ({:.2Lf}x realtime)", bestResult.first.second, bestResult.first.first, prettyBestAvg, fastestTickRate * fixedDeltaTime);
     });
 
     CLI11_PARSE(app, argc, argv);

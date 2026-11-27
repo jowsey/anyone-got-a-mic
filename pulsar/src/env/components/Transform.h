@@ -3,13 +3,15 @@
 #include "glm/detail/type_quat.hpp"
 #include "glm/ext/matrix_transform.hpp"
 #include "glm/gtc/quaternion.hpp"
+#define GLM_ENABLE_EXPERIMENTAL
+#include "glm/gtx/matrix_decompose.hpp"
 
 namespace pulsar::Components
 {
     struct Transform
     {
-        glm::mat4 localMatrix;
-        glm::mat4 worldMatrix;
+        glm::mat4 localMatrix{1.0f};
+        glm::mat4 worldMatrix{1.0f};
 
         bool isLocalStale{true};
         bool worldChangedThisFrame{true};
@@ -53,6 +55,21 @@ namespace pulsar::Components
             localRotation = newRotation;
 
             isLocalStale = true;
+        }
+
+        [[nodiscard]] glm::vec3 getWorldPosition() const
+        {
+            return {worldMatrix[3]};
+        }
+
+        [[nodiscard]] glm::quat getWorldRotation() const
+        {
+            // todo cache these with world matrix changes
+            glm::vec3 scale, translation, skew;
+            glm::vec4 perspective;
+            glm::quat rotation{};
+            glm::decompose(worldMatrix, scale, rotation, translation, skew, perspective);
+            return rotation;
         }
     };
 }

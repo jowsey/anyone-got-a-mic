@@ -41,6 +41,9 @@ namespace pulsar
         inline static std::unordered_map<std::size_t, Renderer::MeshData> meshCache;
         inline static std::unordered_map<std::size_t, Renderer::TextureData> textureCache;
 
+        inline static std::mutex meshCacheMutex{};
+        inline static std::mutex textureCacheMutex{};
+
       public:
         explicit BatchedEnvironment(const std::string& batchName, std::size_t batchSize, std::uint32_t numThreads, float fixedDeltaTime);
         ~BatchedEnvironment();

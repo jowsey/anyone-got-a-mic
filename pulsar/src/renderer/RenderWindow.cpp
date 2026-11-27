@@ -276,7 +276,7 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
                         for (const auto i : it)
                         {
                             if (!showFullGrid && envId[i].envId != this->envIndex) continue;
-                            if (meshRenderer[i].meshes.empty()) continue;
+                            if (!meshRenderer[i].mesh.has_value()) continue;
 
                             glm::mat4 envOffset{1.0f};
 
@@ -289,27 +289,22 @@ pulsar::Renderer::RenderWindow::RenderWindow(const ThreadBatch& threadBatch, std
                                 envOffset = glm::translate(glm::mat4(1.0), glm::vec3(col, 0, row) * cellSize);
                             }
 
-                            for (const auto& handles : meshRenderer[i].meshes)
+                            auto meshHandle = RequestUploadedGPUMesh(meshRenderer[i].mesh.value());
+                            drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
+
+                            Material material{};
+
+                            if (meshRenderer[i].albedo.has_value())
                             {
-                                if (handles.mesh == std::nullopt) continue;
+                                material.hasMapMask |= 1 << 0;
+                                const auto albedoHandle = RequestUploadedGPUTexture(meshRenderer[i].albedo.value());
 
-                                auto meshHandle = RequestUploadedGPUMesh(handles.mesh.value());
-                                drawCommands.emplace_back(meshHandle.indexCount, 1, meshHandle.indexOffset, meshHandle.vertexOffset, objectData.size());
-
-                                Material material{};
-
-                                if (handles.albedo.has_value())
-                                {
-                                    material.hasMapMask |= 1 << 0;
-                                    const auto albedoHandle = RequestUploadedGPUTexture(handles.albedo.value());
-
-                                    // todo this should be essentially guaranteed to exist but maybe harden anyway
-                                    material.albedoTexture = std::distance(textureBuckets.begin(), textureBuckets.find(albedoHandle.bucketRes));
-                                    material.albedoLayer = albedoHandle.index;
-                                }
-
-                                objectData.emplace_back(envOffset * transform[i].worldMatrix, material);
+                                // todo this should be essentially guaranteed to exist but maybe harden anyway
+                                material.albedoTexture = std::distance(textureBuckets.begin(), textureBuckets.find(albedoHandle.bucketRes));
+                                material.albedoLayer = albedoHandle.index;
                             }
+
+                            objectData.emplace_back(envOffset * transform[i].worldMatrix, material);
                         }
                     }
                 }

@@ -110,7 +110,7 @@ namespace pulsar::Renderer
 
         struct
         {
-            glm::vec3 position{0, 2.5, -10};
+            glm::vec3 position{-20, 5, -35};
             glm::quat rotation{1, 0, 0, 0};
         } cameraState;
 

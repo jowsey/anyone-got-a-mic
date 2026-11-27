@@ -1,4 +1,5 @@
 #pragma once
+#include "box3d/id.h"
 #include "glm/vec3.hpp"
 
 namespace pulsar::Components

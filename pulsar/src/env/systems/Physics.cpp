@@ -2,10 +2,10 @@
 
 #include "../../util/FormatConversion.h"
 #include "../components/BoxCollider.h"
-#include "../components/Environment.h"
 #include "../components/RigidBody.h"
 #include "../components/Transform.h"
 #include "box3d/box3d.h"
+#include "glm/gtx/io.hpp"
 #include "spdlog/spdlog.h"
 
 void pulsar::Systems::Physics::Register(const flecs::world& world, const std::vector<b3WorldId>& worldIds, const float deltaTime)
@@ -35,8 +35,8 @@ void pulsar::Systems::Physics::Register(const flecs::world& world, const std::ve
             // todo not sure if this is bad
             b3Body_SetTransform(
                 body.bodyId,
-                Utils::Formats::glmToB3Vec3(transform.localPosition),
-                Utils::Formats::glmToB3Quat(transform.localRotation)
+                Utils::Formats::glmToB3Vec3(transform.getWorldPosition()),
+                Utils::Formats::glmToB3Quat(transform.getWorldRotation())
             );
         });
 
@@ -58,19 +58,27 @@ void pulsar::Systems::Physics::Register(const flecs::world& world, const std::ve
 
                 for (const auto i : it)
                 {
+                    const auto worldPos = transform[i].getWorldPosition();
+                    const auto worldRot = transform[i].getWorldRotation();
+
                     auto physicsPose = b3Body_GetTransform(body[i].bodyId);
                     const auto physPos = Utils::Formats::b3ToGlmVec3(physicsPose.p);
                     const auto physRot = Utils::Formats::b3ToGlmQuat(physicsPose.q);
 
+                    constexpr float posEpsilonSq = 1e-10f; // 1e-5
+                    constexpr float rotEps = 1e-6f;
+
+                    const bool posChanged = glm::length2(worldPos - physPos) > posEpsilonSq;
+                    const bool rotChanged = 1.0f - std::abs(glm::dot(worldRot, physRot)) > rotEps;
+
                     // Handle teleport
-                    if (transform[i].localPosition != physPos || transform[i].localRotation != physRot)
+                    if (posChanged || rotChanged)
                     {
-                        spdlog::debug("Body {} ({}) teleported by {} units", body[i].bodyId.index1, it.entity(i).name().c_str(), glm::length(transform[i].localPosition - physPos));
-                        b3Body_SetTransform(
-                            body[i].bodyId,
-                            Utils::Formats::glmToB3Vec3(transform[i].localPosition),
-                            Utils::Formats::glmToB3Quat(transform[i].localRotation)
-                        );
+                        spdlog::trace("Entity '{}' (w {}, b {}) teleported by {} units and {} degrees",
+                                     it.entity(i).name().c_str(), body[i].worldId.index1, body[i].bodyId.index1,
+                                     glm::length(worldPos - physPos), glm::degrees(glm::acos(glm::clamp(glm::dot(worldRot, physRot), 0.0f, 1.0f))) * 2.0f);
+
+                        b3Body_SetTransform(body[i].bodyId, Utils::Formats::glmToB3Vec3(worldPos), Utils::Formats::glmToB3Quat(worldRot));
                     }
                 }
             }
