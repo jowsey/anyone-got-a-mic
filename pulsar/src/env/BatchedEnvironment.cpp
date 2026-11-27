@@ -24,6 +24,7 @@
 
 #include <barrier>
 #include <filesystem>
+#include <latch>
 #include <random>
 
 /// Create a new batched environment
@@ -37,8 +38,13 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
     spdlog::info("Launching batch '{}' with {} environments across {} thread(s)", batchName, batchSize * numThreads, numThreads);
     assert(batchSize * numThreads <= B3_MAX_WORLDS && "Batch size exceeds max Box3D worlds. Increase B3_MAX_WORLDS in CMakeLists.txt.");
 
-    threadBatches.reserve(numThreads);
+    // Register primitive meshes
+    for (const auto& [meshName, meshData] : Renderer::PrimitiveMeshes)
+    {
+        meshCache.emplace(std::hash<std::string>{}("primitive::" + meshName), meshData);
+    }
 
+    // Register Box3D default defs
     b3WorldDef worldDef = b3DefaultWorldDef();
     worldDef.gravity = b3Vec3{.x = 0.0f, .y = -9.81f, .z = 0.0f};
     worldDef.workerCount = 1;
@@ -48,12 +54,10 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
     b3BodyDef blockBodyDef = b3DefaultBodyDef();
     blockBodyDef.type = b3_dynamicBody;
 
-    // Register primitives
-    for (const auto& [meshName, meshData] : Renderer::PrimitiveMeshes)
-    {
-        meshCache.emplace(std::hash<std::string>{}("primitive::" + meshName), meshData);
-    }
+    std::latch threadsReady(numThreads);
 
+    // Launch worker pool
+    threadBatches.reserve(numThreads);
     for (std::size_t threadI = 0; threadI < numThreads; ++threadI)
     {
         auto& threadBatch = threadBatches.emplace_back();
@@ -63,8 +67,6 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
 
         for (std::size_t envI = 0; envI < batchSize; ++envI)
         {
-            threadBatch.agentObservations[envI].reserve(128); // todo formalize number of agents per env
-
             // Create physics world
             const auto b3WorldId = b3CreateWorld(&worldDef);
             threadBatch.b3WorldIds.push_back(b3WorldId);
@@ -81,63 +83,65 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
         // Physics system
         Systems::Physics::Register(threadBatch.sharedWorld, threadBatch.b3WorldIds, fixedDeltaTime);
 
-        // todo cache across batches
-        auto dust2Prefab = buildPrefabFromAsset(Utils::Path::getEnginePath() / "resources/models/maps/Dust2/Dust2.obj", threadBatch.sharedWorld);
-        dust2Prefab->set<Components::Transform>({.localRotation = glm::quat_cast(glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0)))}); // -Z up -> +Y up
+        // Start worker
+        threadBatch.worker = std::jthread([&, threadI, fixedDeltaTime, floorBodyDef, blockBodyDef](const std::stop_token& stopToken) mutable {
+            spdlog::debug("[Worker {}] Worker starting...", threadI + 1);
 
-        for (std::size_t envI = 0; envI < threadBatch.b3WorldIds.size(); ++envI)
-        {
-            const auto root = threadBatch.envRoots[envI];
-            const auto b3WorldId = threadBatch.b3WorldIds[envI];
+            const auto dust2Prefab = buildPrefabFromAsset(Utils::Path::getEnginePath() / "resources/models/maps/Dust2/Dust2.obj", threadBatch.sharedWorld);
+            dust2Prefab->set<Components::Transform>({.localRotation = glm::quat_cast(glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0)))}); // -Z up -> +Y up
 
-            const auto cubeHash = std::hash<std::string>{}("primitive::cube");
-
-            // Create ground floor
-            auto floor = createEnvObject("EnvFloor" + std::to_string(envI), root);
-            floorBodyDef.userData = reinterpret_cast<void*>(floor.id());
-
-            Components::MeshHandleSet cubeHandleSet{.mesh = cubeHash};
-
-            (void)floor
-                .set<Components::Transform>({.localPosition = glm::vec3{0.0f, -0.25f, 0.0f}, .localScale = glm::vec3{10.0f, 0.25f, 10.0f}})
-                .set<Components::RigidBody>({.worldId = b3WorldId, .bodyId = b3CreateBody(b3WorldId, &floorBodyDef)})
-                .set<Components::BoxCollider>({.extents = glm::vec3{5.0f, 0.125f, 5.0f}})
-                .set<Components::MeshRenderer>({.meshes = {cubeHandleSet}});
-
-            // Create falling blocks
-            for (std::size_t i = 0; i < 5; ++i)
+            for (std::size_t envI = 0; envI < batchSize; ++envI)
             {
-                std::mt19937 rng{std::random_device{}()};
-                std::uniform_real_distribution<float> dist(-5.0f, 5.0f);
+                const auto root = threadBatch.envRoots[envI];
+                const auto b3WorldId = threadBatch.b3WorldIds[envI];
 
-                auto block = createEnvObject("Block" + std::to_string(envI) + "_" + std::to_string(i + 1), root);
-                blockBodyDef.userData = reinterpret_cast<void*>(block.id());
+                const auto cubeHash = std::hash<std::string>{}("primitive::cube");
 
-                (void)block
-                    .set<Components::Transform>({.localPosition = glm::vec3{dist(rng), 5.0f, dist(rng)}})
-                    .set<Components::RigidBody>({.worldId = b3WorldId, .bodyId = b3CreateBody(b3WorldId, &blockBodyDef)})
-                    .set<Components::BoxCollider>({.extents = glm::vec3{0.5f}})
+                // Create ground floor
+                auto floor = createEnvObject("EnvFloor" + std::to_string(envI), root);
+                floorBodyDef.userData = reinterpret_cast<void*>(floor.id());
+
+                Components::MeshHandleSet cubeHandleSet{.mesh = cubeHash};
+
+                (void)floor
+                    .set<Components::Transform>({.localPosition = glm::vec3{0.0f, -0.25f, 0.0f}, .localScale = glm::vec3{10.0f, 0.25f, 10.0f}})
+                    .set<Components::RigidBody>({.worldId = b3WorldId, .bodyId = b3CreateBody(b3WorldId, &floorBodyDef)})
+                    .set<Components::BoxCollider>({.extents = glm::vec3{5.0f, 0.125f, 5.0f}})
                     .set<Components::MeshRenderer>({.meshes = {cubeHandleSet}});
+
+                // Create falling blocks
+                for (std::size_t i = 0; i < 5; ++i)
+                {
+                    std::mt19937 rng{std::random_device{}()};
+                    std::uniform_real_distribution<float> dist(-5.0f, 5.0f);
+
+                    auto block = createEnvObject("Block" + std::to_string(envI) + "_" + std::to_string(i + 1), root);
+                    blockBodyDef.userData = reinterpret_cast<void*>(block.id());
+
+                    (void)block
+                        .set<Components::Transform>({.localPosition = glm::vec3{dist(rng), 5.0f, dist(rng)}})
+                        .set<Components::RigidBody>({.worldId = b3WorldId, .bodyId = b3CreateBody(b3WorldId, &blockBodyDef)})
+                        .set<Components::BoxCollider>({.extents = glm::vec3{0.5f}})
+                        .set<Components::MeshRenderer>({.meshes = {cubeHandleSet}});
+                }
+
+                // Create map
+                auto map = threadBatch.sharedWorld.entity(flecs::Parent{root}, ("Dust2Map" + std::to_string(envI)).c_str())
+                               .is_a(dust2Prefab.value());
+
+                // recursively update env ids
+                const auto updateEnvIds = [&](this auto&& self, const flecs::entity& entity) -> void {
+                    entity.set<Components::EnvironmentId>({.envId = envI});
+                    entity.children([&](const flecs::entity& child) {
+                        self(child);
+                    });
+                };
+
+                updateEnvIds(map);
             }
 
-            // Create map
-            auto map = threadBatch.sharedWorld.entity(flecs::Parent{root}, ("Dust2Map" + std::to_string(envI)).c_str())
-                           .is_a(dust2Prefab.value());
-
-            // recursively update env ids
-            const auto updateEnvIds = [&](this auto&& self, const flecs::entity& entity) -> void {
-                entity.set<Components::EnvironmentId>({.envId = envI});
-                entity.children([&](const flecs::entity& child) {
-                    self(child);
-                });
-            };
-
-            updateEnvIds(map);
-        }
-
-        // Start worker
-        threadBatch.worker = std::jthread([&, threadI, fixedDeltaTime](const std::stop_token& stopToken) {
-            spdlog::debug("[Worker {}] Worker started", threadI + 1);
+            spdlog::debug("[Worker {}] Worker ready", threadI + 1);
+            threadsReady.arrive_and_wait();
 
             while (true)
             {
@@ -157,6 +161,8 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
             spdlog::debug("[Worker {}] Worker stopped", threadI + 1);
         });
     }
+
+    threadsReady.wait();
 }
 
 pulsar::BatchedEnvironment::~BatchedEnvironment()
@@ -216,7 +222,7 @@ flecs::entity pulsar::BatchedEnvironment::createEnvObject(const std::string& nam
 
 std::optional<flecs::entity> pulsar::BatchedEnvironment::buildPrefabFromAsset(const std::filesystem::path& path, const flecs::world& world)
 {
-    spdlog::debug("Importing asset prefab from {}", path.lexically_normal().string());
+    spdlog::trace("Importing asset prefab from {}", path.lexically_normal().string());
 
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(
