@@ -137,7 +137,7 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
 
         // Start worker
         threadBatch.worker = std::jthread([&, threadI, fixedDeltaTime](const std::stop_token& stopToken) {
-            spdlog::debug("[Worker {}] Worker started", threadI);
+            spdlog::debug("[Worker {}] Worker started", threadI + 1);
 
             while (true)
             {
@@ -148,13 +148,13 @@ pulsar::BatchedEnvironment::BatchedEnvironment(const std::string& batchName, con
                 const auto ecsContinue = threadBatch.sharedWorld.progress(fixedDeltaTime);
                 if (!ecsContinue)
                 {
-                    spdlog::warn("[Worker {}] ECS has quit?", threadI);
+                    spdlog::warn("[Worker {}] ECS has quit?", threadI + 1);
                 }
 
                 workDoneBarrier.arrive_and_wait();
             }
 
-            spdlog::debug("[Worker {}] Worker stopped", threadI);
+            spdlog::debug("[Worker {}] Worker stopped", threadI + 1);
         });
     }
 }
