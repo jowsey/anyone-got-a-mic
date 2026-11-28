@@ -2,7 +2,7 @@
 
 python trainer side of the env. wip
 
-default is CPU (/metal), `uv sync` with `--extra rocm` or `--extra cuda` to use AMD/NVIDIA respectively.
+use `uv sync` with `--extra cpu`, or `--extra gfx1100` for ROCm builds.
 
 then run the thing
 
